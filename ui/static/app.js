@@ -436,7 +436,14 @@ function _onRecordingFinished() {
         `Saved to tests/${n}/playbook.yaml — ${_recordStepCount} step${_recordStepCount !== 1 ? 's' : ''} recorded. You can run it from the sidebar.`;
     _setRecordState('done');
     fetchPlaybooks().then(() => {
-        if (_recordTestId) { state.expandedTests.add(_recordTestId); renderPlaybookList(); }
+        if (_recordTestId) {
+            state.expandedTests.add(_recordTestId);
+            renderPlaybookList();
+            // If the recorded test is the one currently open, reload its content
+            if (state.currentId === _recordTestId) {
+                loadPlaybook(_recordTestId, 'playbook.yaml');
+            }
+        }
     });
 }
 

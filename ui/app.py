@@ -320,6 +320,20 @@ def start_recording(test_id):
         bufsize=1,
     )
 
+    # ── CRITICAL: Read stdout in a thread so it doesn't block Popen buffer ──
+    def _read_recorder_output(p, tid):
+        log.info("Started log reader for recorder: %s", tid)
+        try:
+            for line in iter(p.stdout.readline, ""):
+                if not line: break
+                # Forward to app logger so we can see what's happening
+                print(f"[RECORDER:{tid}] {line.strip()}")
+            p.stdout.close()
+        except Exception as e:
+            log.error("Recorder log reader error: %s", e)
+
+    threading.Thread(target=_read_recorder_output, args=(proc, test_id), daemon=True).start()
+
     with _registry_lock:
         _active_processes[reg_key] = proc
 
@@ -328,7 +342,7 @@ def start_recording(test_id):
         "pid":     proc.pid,
         "message": (
             f"Recorder started (PID {proc.pid}) for '{test_id}'. "
-            "Hover over Citrix elements and press ENTER in the terminal. "
+            "Hover over Citrix elements and click Capture Step. "
             "Click Stop Recording when done."
         ),
     })

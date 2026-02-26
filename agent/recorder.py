@@ -367,6 +367,9 @@ class PlaybookRecorder:
 
         except KeyboardInterrupt:
             pass
+        finally:
+            # Final explicit save before exit
+            self._save_yaml()
 
         # ── Session summary ────────────────────────────────────────────────────
         elapsed = int(time.time() - self.session_start)
@@ -375,9 +378,10 @@ class PlaybookRecorder:
             "  Session Complete",
             f"  Steps     : {len(self.steps)}",
             f"  Duration  : {elapsed//60}m {elapsed%60}s",
-            f"  File      : tests/{self.test_name}/playbook.yaml",
+            f"  File      : {self.yaml_path.relative_to(ROOT)}",
         ], color=C.GREEN)
         _step_table(self.steps)
+        print(f"{C.GREEN}  ✓ Saved to: {self.yaml_path}{C.RESET}")
         print(f"{C.GREEN}  ✓ Run it:  ./run.sh run {self.test_name}{C.RESET}\n")
         sys.exit(0)
 
