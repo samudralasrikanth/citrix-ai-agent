@@ -132,18 +132,25 @@ def run_playbook(test_id):
             )
             
             # 2. Active monitor loop with heartbeat
+            from queue import Queue, Empty
+            output_queue = Queue()
+
+            def reader_thread(pipe, queue):
+                try:
+                    for line in iter(pipe.readline, ''):
+                        queue.put(line)
+                    pipe.close()
+                except: pass
+
+            t = threading.Thread(target=reader_thread, args=(process.stdout, output_queue), daemon=True)
+            t.start()
+
             last_activity = time.time()
             
-            # Configure non-blocking stdout reading
-            import fcntl
-            fd = process.stdout.fileno()
-            fl = fcntl.fcntl(fd, fcntl.F_GETFL)
-            fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-
             while True:
-                # Check for output
+                # Check for output with a 0.2s timeout
                 try:
-                    line = process.stdout.readline()
+                    line = output_queue.get_nowait()
                     if line:
                         last_activity = time.time()
                         try:
@@ -151,11 +158,10 @@ def run_playbook(test_id):
                             yield f"data: {line}\n\n"
                         except:
                             yield f"data: {json.dumps({'status': 'raw', 'message': line.strip()})}\n\n"
-                    elif process.poll() is not None:
-                        break
-                except (IOError, TypeError):
+                except Empty:
                     # No data to read yet
-                    pass
+                    if not t.is_alive() and output_queue.empty():
+                        break
 
                 # 3. Heartbeat (every 5 seconds)
                 if time.time() - last_activity > 5:
@@ -164,7 +170,6 @@ def run_playbook(test_id):
 
                 time.sleep(0.1)
             
-            process.stdout.close()
             rc = process.wait()
             
             if rc == 0:
