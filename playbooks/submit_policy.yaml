@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────
+# Playbook: Submit Policy
+# Run:  python run.py run submit_policy
+# ─────────────────────────────────────────────────────────────────
+
+name: Submit Policy
+description: Describe what this test does
+
+# Optional: which saved region to use (from: python run.py regions)
+# region: login_screen
+
+steps:
+  - action: screenshot
+    description: "Baseline screenshot before starting"
+
+  # ── Supported actions ─────────────────────────────────────────
+  # - action: click
+  #   target: "Button text visible on screen"
+  #
+  # - action: type
+  #   target: "Field label visible on screen"
+  #   value:  "Text to type into the field"
+  #
+  # - action: wait_for
+  #   target: "Text to wait for"
+  #   timeout: 10
+  #
+  # - action: pause
+  #   seconds: 2.0
+  #
+  # - action: screenshot
+  # ─────────────────────────────────────────────────────────────
+
+  - action: click
+    target: ""
+    description: "TODO: set target to the text visible on screen"

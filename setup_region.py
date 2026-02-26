@@ -16,8 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-REGION_FILE = Path(__file__).parent / "memory" / "region.json"
-REGION_FILE.parent.mkdir(parents=True, exist_ok=True)
+MEMORY_DIR  = Path(__file__).parent / "memory"
+REGIONS_DIR = MEMORY_DIR / "regions"
+REGION_FILE = MEMORY_DIR / "region.json"   # default (backward compat)
+MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+REGIONS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC     = platform.system() == "Darwin"
@@ -209,32 +213,37 @@ def main() -> None:
         left   = left + off_x
         top    = top  + off_y
 
-    region = {"top": top, "left": left, "width": width, "height": height}
+    region  = {"top": top, "left": left, "width": width, "height": height}
+    win_name = name
+    data    = {"window_name": win_name, "region": region}
 
     # ── Save ──────────────────────────────────────────────────────────────────
-    data = {"window_name": name, "region": region}
+    # Accept optional region name from command-line: python run.py setup <name>
+    region_name = sys.argv[1].strip() if len(sys.argv) > 1 else ""
+    region_slug = region_name.lower().replace(" ", "_") if region_name else ""
+
+    # Always write default region.json (so playbooks work without specifying a name)
     REGION_FILE.write_text(json.dumps(data, indent=2))
+
+    # Also save as named region if a name was given
+    if region_slug:
+        named_path = REGIONS_DIR / f"{region_slug}.json"
+        named_path.write_text(json.dumps(data, indent=2))
+        saved_as = f"memory/regions/{region_slug}.json  +  memory/region.json"
+    else:
+        saved_as = "memory/region.json  (default)"
 
     print()
     print("  ✅  Saved!")
-    print(f"     window  : {name}")
-    print(f"     top     : {top}")
-    print(f"     left    : {left}")
-    print(f"     width   : {width}")
-    print(f"     height  : {height}")
+    print(f"     file    : {saved_as}")
+    print(f"     window  : {win_name}")
+    print(f"     top={top}, left={left}, width={width}, height={height}")
     print()
-    print("  ─────────────────────────────────────────────────────")
-    if IS_WINDOWS:
-        print("  Next (Windows):")
-        print("    run list                       ← see playbooks")
-        print("    run new  my_test               ← create a test")
-        print("    run run  my_test --dry-run     ← preview steps")
-        print("    run run  my_test               ← run live")
-    else:
-        print("  Next (Mac/Linux):")
-        print("    python run.py list             ← see playbooks")
-        print("    python run.py new  my_test     ← create a test")
-        print("    python run.py run  my_test     ← run live")
+    launcher = "run" if IS_WINDOWS else "python run.py"
+    print(f"  Next:")
+    print(f"    {launcher} regions              ← see all saved regions")
+    print(f"    {launcher} new  my_test         ← create a new test")
+    print(f"    {launcher} run  my_test         ← run it live")
     print()
 
 
