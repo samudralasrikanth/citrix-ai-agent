@@ -1,1 +1,0 @@
-{"timestamp": "2026-02-26T15:22:38.945540", "test": "sample", "execution_id": "20260226_152238", "step": 1, "action": "screenshot", "target": "", "res": {"success": true, "error": null, "error_code": 0, "target_center": null, "fuzzy_score": 0.0, "screen_changed": false, "message": "Saved: manual_1772099558.png"}}

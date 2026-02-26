@@ -1,4 +1,0 @@
-name: Ji
-description: New scenario for Safari
-steps:
-  - action: screenshot

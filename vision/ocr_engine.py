@@ -1,99 +1,176 @@
+"""
+╔══════════════════════════════════════════════════════════════════════╗
+║  OcrEngine — Enhanced PaddleOCR Wrapper                             ║
+║                                                                      ║
+║  Improvements over v1:                                              ║
+║    • Pre-processing pipeline sharpens small text before OCR         ║
+║    • extract_low_conf() drops threshold to 0.35 for short buttons   ║
+║    • extract_with_scale() upscales a crop for tiny-text recovery    ║
+║    • Consistent result schema: {text, norm, box, confidence}        ║
+╚══════════════════════════════════════════════════════════════════════╝
+"""
 from __future__ import annotations
-import os
+
+import logging
+from typing import Any, Dict, List, Optional
+
 import cv2
 import numpy as np
-from typing import Any, List, Optional
 from paddleocr import PaddleOCR
 
 import config
-from utils.logger import get_logger
 
-log = get_logger(__name__)
+log = logging.getLogger("OcrEngine")
+
 
 class OcrEngine:
     """
-    Singleton-like wrapper for PaddleOCR for production stability.
-    Includes model pre-warming and high-DPI scaling support.
+    Singleton PaddleOCR wrapper with enhanced pre-processing.
+    All extract methods return the same schema:
+        [{"text": str, "box": [x1,y1,x2,y2], "confidence": float}, ...]
     """
-    _instance = None
-    _initialized = False
+
+    _instance:     Optional["OcrEngine"] = None
+    _initialized:  bool = False
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(OcrEngine, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self) -> None:
         if OcrEngine._initialized:
             return
-            
-        log.info("Initialising Vision OCR (lang=%s, prewarm=%s) ...", 
+
+        log.info("Initialising Vision OCR (lang=%s, prewarm=%s) …",
                  config.OCR_LANG, config.OCR_PREWARM)
-        
         try:
             self._ocr = PaddleOCR(
                 lang=config.OCR_LANG,
-                use_angle_cls=config.OCR_USE_ANGLE_CLS
+                use_angle_cls=config.OCR_USE_ANGLE_CLS,
             )
-            
             if config.OCR_PREWARM:
                 self._warm_up()
-                
             OcrEngine._initialized = True
-            log.info("Vision OCR Engine Ready.")
-        except Exception as e:
-            log.error("CRITICAL: Failed to load OCR models: %s", e)
-            raise RuntimeError(f"OCR Initialization Error: {e}")
+            log.info("OCR Engine ready.")
+        except Exception as exc:
+            log.error("CRITICAL: Failed to load OCR models: %s", exc)
+            raise RuntimeError(f"OCR Initialization Error: {exc}")
 
-    def _warm_up(self):
-        """Warm up the model with a blank image to avoid lag on first execution."""
-        blank = np.zeros((100, 100, 3), dtype=np.uint8)
-        self._ocr.ocr(blank)
-        log.debug("OCR Engine pre-warmed.")
+    # ── Public extract methods ─────────────────────────────────────────────────
 
     def extract(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """
-        Run OCR on an image and return structured results.
+        Standard extract — uses config.OCR_MIN_CONFIDENCE (default 0.55).
+        Applies pre-processing to improve small-text detection.
         """
-        try:
-            # Downscale if needed to save RAM on high-res monitors
-            image = self._preprocess(image)
-            
-            # PaddleOCR v2.x returns list containing results
-            raw = self._ocr.ocr(image)
-            
-            results = []
-            if not raw or not raw[0]:
-                return results
+        return self._run(image, min_conf=config.OCR_MIN_CONFIDENCE)
 
-            for line in raw[0]:
-                polygon, (text, conf) = line
-                if conf < config.OCR_MIN_CONFIDENCE:
-                    continue
-                
-                # Convert 4-point polygon to axis-aligned [x1, y1, x2, y2]
-                xs = [pt[0] for pt in polygon]
-                ys = [pt[1] for pt in polygon]
-                box = [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))]
-                
-                results.append({
-                    "text": text.strip(),
-                    "box": box,
-                    "confidence": round(float(conf), 4)
-                })
-            
-            return results
-        except Exception as e:
-            log.error("OCR Inference Error: %s", e)
+    def extract_low_conf(self, image: np.ndarray) -> List[Dict[str, Any]]:
+        """
+        Low-confidence pass — use this when searching for short labels like
+        "OK", "No", "Yes" that PaddleOCR often scores at 0.40–0.54.
+        Threshold: 0.35 (catches more candidates; normalization handles FPs).
+        """
+        return self._run(image, min_conf=0.35)
+
+    def extract_with_scale(
+        self,
+        image:     np.ndarray,
+        scale:     float = 2.5,
+        min_conf:  float = 0.35,
+    ) -> List[Dict[str, Any]]:
+        """
+        Upscale *image* by *scale* before OCR — helps tiny buttons (< 20px tall).
+        Bounding boxes are scaled back to original image coordinates.
+        """
+        h0, w0  = image.shape[:2]
+        upscaled = cv2.resize(image, (int(w0 * scale), int(h0 * scale)),
+                              interpolation=cv2.INTER_CUBIC)
+        upscaled = self._preprocess(upscaled)
+        results  = self._run(upscaled, min_conf=min_conf)
+
+        # Rescale boxes back to original coordinate space
+        for r in results:
+            r["box"] = [int(v / scale) for v in r["box"]]
+
+        return results
+
+    # ── Private ────────────────────────────────────────────────────────────────
+
+    def _warm_up(self) -> None:
+        blank = np.zeros((64, 64, 3), dtype=np.uint8)
+        self._ocr.ocr(blank)
+        log.debug("OCR Engine pre-warmed.")
+
+    def _run(self, image: np.ndarray, min_conf: float) -> List[Dict[str, Any]]:
+        """Internal: pre-process → PaddleOCR → filter → structure."""
+        try:
+            prepared = self._preprocess(image)
+            raw      = self._ocr.ocr(prepared)
+            return self._parse(raw, min_conf)
+        except Exception as exc:
+            log.error("OCR inference error: %s", exc)
             return []
 
-    def _preprocess(self, image: np.ndarray) -> np.ndarray:
-        """Apply noise reduction or scaling if necessary."""
-        # For now just simple scaling if image is massive
+    @staticmethod
+    def _preprocess(image: np.ndarray) -> np.ndarray:
+        """
+        Pre-processing pipeline tuned for Citrix UI screenshots.
+        Steps:
+            1. Downscale very large images (RAM guard)
+            2. Convert to LAB → CLAHE on L channel (contrast normalisation)
+            3. Mild unsharp mask (sharpens small text)
+            4. Denoise (reduces JPEG/Citrix compression noise)
+        """
         h, w = image.shape[:2]
-        max_dim = 1600
-        if w > max_dim or h > max_dim:
+
+        # 1. Downscale if too large
+        max_dim = 1920
+        if max(h, w) > max_dim:
             scale = max_dim / max(h, w)
-            new_w, new_h = int(w * scale), int(h * scale)
-            image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            image = cv2.resize(image, (int(w * scale), int(h * scale)),
+                               interpolation=cv2.INTER_AREA)
+            h, w  = image.shape[:2]
+
+        # 2. CLAHE contrast normalisation
+        lab   = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l     = clahe.apply(l)
+        image = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+
+        # 3. Unsharp mask (sharpens button text edges)
+        blurred = cv2.GaussianBlur(image, (0, 0), sigmaX=1.0)
+        image   = cv2.addWeighted(image, 1.5, blurred, -0.5, 0)
+
+        # 4. Fast nlMeans denoise (light pass)
+        image = cv2.fastNlMeansDenoisingColored(image, None, h=4, hColor=4,
+                                                templateWindowSize=7, searchWindowSize=11)
         return image
+
+    @staticmethod
+    def _parse(raw: Any, min_conf: float) -> List[Dict[str, Any]]:
+        """Convert PaddleOCR raw output to our standard schema."""
+        results: List[Dict[str, Any]] = []
+
+        if not raw or not raw[0]:
+            return results
+
+        for line in raw[0]:
+            polygon, (text, conf) = line
+            text = (text or "").strip()
+            if not text or conf < min_conf:
+                continue
+
+            xs  = [pt[0] for pt in polygon]
+            ys  = [pt[1] for pt in polygon]
+            box = [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))]
+
+            results.append({
+                "text":       text,
+                "box":        box,
+                "confidence": round(float(conf), 4),
+            })
+
+        return results

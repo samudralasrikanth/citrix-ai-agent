@@ -1,4 +1,0 @@
-name: Sample
-description: New scenario for Safari
-steps:
-  - action: screenshot

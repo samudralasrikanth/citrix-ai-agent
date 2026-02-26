@@ -11,11 +11,11 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import numpy as np
 
 import config
 from capture.screen_capture import ScreenCapture
 from vision.ocr_engine import OcrEngine
-from vision.element_detector import ElementDetector
 from agent.action_executor import ActionExecutor
 from utils.logger import get_logger, ExecutionLogger
 from utils.validator import validate_playbook_schema
@@ -33,11 +33,10 @@ class ExecutionContext:
         # Core Components
         self.capturer = ScreenCapture()
         self.ocr = OcrEngine()
-        self.detector = ElementDetector()
-        self.executor = ActionExecutor()
         
         # Execution State
         self.current_region = None
+        self.executor = None  # Instantiated after region is found
         self.steps_passed = 0
         self.steps_failed = 0
         self.audit_log = ExecutionLogger(self.test_id)
@@ -82,6 +81,9 @@ def run_production_test(context: ExecutionContext):
         else:
             context.stream_json("error", "Target window not found and no region data exists.", code=config.ERROR_CODES["ERR_MATCH_FAIL"])
             return
+
+    # 2.5 Initialize Executor with current region context
+    context.executor = ActionExecutor(region=context.current_region)
 
     # 3. Execution Phase
     steps = yaml.safe_load((context.test_path / "playbook.yaml").read_text()).get("steps", [])
@@ -129,8 +131,9 @@ def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: Executi
     # 1. Optimised path for meta-actions (no vision required)
     if action in ["pause", "screenshot"]:
         res = context.executor.execute(
-            action={"action": action, "target_text": target, "value": step.get("value", "")},
-            elements=[],
+            action={"action": action, "target": target, "value": step.get("value", "")},
+            ocr_results=[],
+            frame=np.zeros((1, 1, 3), dtype=np.uint8),
             capture_fn=lambda: context.capturer.capture(region=context.current_region)
         )
         context.audit_log.log_step({**metadata, "res": res})
@@ -142,24 +145,18 @@ def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: Executi
     # Retry mechanism with backoff
     for attempt in range(1, config.MAX_ACTION_RETRIES + 1):
         try:
-            # 2. Capture and Vision
+            # 2. Capture frame
             frame = context.capturer.capture(region=context.current_region)
+            
+            # 3. OCR extraction (region-relative)
             ocr_results = context.ocr.extract(frame)
-            elements = context.detector.detect_contours(frame)
-            elements = context.detector.merge_with_ocr(elements, ocr_results)
             
-            # 3. Offset mapping: convert region-relative → absolute screen coordinates
-            reg = context.current_region or {}
-            ox  = int(reg.get("left", 0))
-            oy  = int(reg.get("top",  0))
-            for e in elements:
-                e["cx"] = int(e.get("cx", 0)) + ox
-                e["cy"] = int(e.get("cy", 0)) + oy
-            
-            # 4. Execute
+            # 4. Execute using the new MatchEngine-powered executor
+            # This handles normalization, memory, short-targets, and fallback chains.
             res = context.executor.execute(
-                action={"action": action, "target_text": target, "value": step.get("value", "")},
-                elements=elements,
+                action={"action": action, "target": target, "value": step.get("value", "")},
+                ocr_results=ocr_results,
+                frame=frame,
                 capture_fn=lambda: context.capturer.capture(region=context.current_region)
             )
             

@@ -1,9 +1,0 @@
-name: My_Test_Sessiono
-description: Recorded on 2026-02-26 16:48
-steps:
-- action: click
-  target: '[818, 733]'
-  description: Auto-recorded click on [818, 733]
-- action: click
-  target: '[1156, 764]'
-  description: Auto-recorded click on [1156, 764]
