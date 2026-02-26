@@ -142,12 +142,8 @@ def setup_region():
     import cv2
     from capture.screen_capture import ScreenCapture
     cap = ScreenCapture()
-    full_img = cap.capture()
+    ref_img = cap.capture(region=window)
     cap.close()
-    # Crop the exact window
-    top, left = window["top"], window["left"]
-    w, h = window["width"], window["height"]
-    ref_img = full_img[top:top+h, left:left+w]
     cv2.imwrite(str(test_folder / "reference.png"), ref_img)
 
     # 3. Create default playbook if it doesn't exist

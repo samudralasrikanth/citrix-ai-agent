@@ -131,6 +131,7 @@ function renderPlaybookList() {
         if (!state.expandedTests.has(pb.id)) fileList.style.display = 'none';
 
         folderLi.onclick = async () => {
+            loadPlaybook(pb.id);
             if (state.expandedTests.has(pb.id)) {
                 state.expandedTests.delete(pb.id);
                 fileList.style.display = 'none';
@@ -227,6 +228,7 @@ async function saveRegion() {
 
     if (res.ok) {
         closeModal();
+        state.expandedTests.add(name);
         await fetchPlaybooks(); // Refresh the list
         await loadPlaybook(name); // Load it immediately
         logToTerminal(`\n✅ Test Case '${name}' created successfully.`);

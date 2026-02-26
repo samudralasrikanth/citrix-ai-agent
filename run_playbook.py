@@ -11,6 +11,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 import yaml
@@ -98,6 +99,23 @@ def run_test_folder(folder_path: Path, dry_run: bool = False, stop_on_fail: bool
     print(DIVIDER)
     print(f"Results:  ✅ {passed} passed  |  ❌ {failed} failed  |  ⏭  {skipped} skipped")
     print(DIVIDER)
+    
+    # Generate report.json
+    report = {
+        "test_name": name,
+        "timestamp": datetime.now().isoformat(),
+        "mode": "DRY RUN" if dry_run else "LIVE RUN",
+        "results": {
+            "passed": passed,
+            "failed": failed,
+            "skipped": skipped,
+            "status": "PASSED" if failed == 0 else "FAILED"
+        }
+    }
+    with open(folder_path / "report.json", "w") as f:
+        json.dump(report, f, indent=2)
+    print(f"📝 Report saved to: {folder_path / 'report.json'}")
+
     capturer.close()
 
 def _run_step(step_num, step, capturer, ocr, detector, executor, memory, region, dry_run) -> bool:
@@ -112,6 +130,9 @@ def _run_step(step_num, step, capturer, ocr, detector, executor, memory, region,
     print(f"\nStep {step_num:02d}: {label}")
     if dry_run: return True
 
+    # ── Handle Offsets for Screen Clicking ──────────────────────────────────
+    ox, oy = region.get("left", 0), region.get("top", 0)
+
     if action == "pause":
         time.sleep(seconds)
         return True
@@ -121,12 +142,18 @@ def _run_step(step_num, step, capturer, ocr, detector, executor, memory, region,
         print(f"      → saved: {path}")
         return True
 
-    # ── Capture with dynamic region ───────────────────────────────────────────
+    # Capture with dynamic region
     frame = capturer.capture(region=region)
     ocr_results = ocr.extract(frame)
     elements = detector.detect_contours(frame)
     elements = detector.merge_with_ocr(elements, ocr_results)
     
+    # Map elements to absolute screen coordinates
+    for e in elements:
+        e["cx"] += ox
+        e["cy"] += oy
+        e["box"] = [e["box"][0] + ox, e["box"][1] + oy, e["box"][2] + ox, e["box"][3] + oy]
+
     action_dict = {"action": action, "target_text": target, "value": value}
     if action == "wait_for": action_dict["action"] = "wait_for"
 
