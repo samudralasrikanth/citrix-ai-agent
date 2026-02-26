@@ -37,11 +37,24 @@ DIVIDER     = "─" * 60
 
 # ── Region loader ─────────────────────────────────────────────────────────────
 
-def _load_region() -> dict:
-    if not REGION_FILE.exists():
-        print("\n⚠️  No capture region saved. Run:  ./run.sh setup\n")
+def _load_region(name: str = "") -> dict:
+    """Load a region by name, or fall back to the default region.json."""
+    if name:
+        path = Path(__file__).parent / "memory" / "regions" / f"{name.lower().replace(' ', '_')}.json"
+        if not path.exists():
+            print(f"\n⚠️  Named region '{name}' not found at: {path}\n")
+            # fallback to default
+            print(f"   Falling back to default region...\n")
+            path = REGION_FILE
+    else:
+        path = REGION_FILE
+
+    if not path.exists():
+        print(f"\n⚠️  No capture region found at: {path}")
+        print("   Run setup first: python run.py setup\n")
         sys.exit(1)
-    data = json.loads(REGION_FILE.read_text())
+
+    data = json.loads(path.read_text())
     # support both old flat format and new nested format
     return data.get("region", data)
 
@@ -152,6 +165,7 @@ def run_playbook(path: Path, dry_run: bool = False, stop_on_fail: bool = True) -
     data = yaml.safe_load(path.read_text())
     name    = data.get("name", path.stem)
     steps   = data.get("steps", [])
+    region_name = data.get("region", "")
 
     print()
     print("┌──────────────────────────────────────────────────────┐")
@@ -160,7 +174,7 @@ def run_playbook(path: Path, dry_run: bool = False, stop_on_fail: bool = True) -
     print(f"│  Mode    : {'DRY RUN (no actions)' if dry_run else 'LIVE RUN':<41}│")
     print("└──────────────────────────────────────────────────────┘")
 
-    region   = _load_region()
+    region   = _load_region(region_name)
     capturer = ScreenCapture()
     ocr      = OcrEngine()
     detector = ElementDetector()

@@ -187,6 +187,21 @@ def cmd_list() -> int:
     return 0
 
 
+def cmd_ui() -> int:
+    """Launch the Flask web dashboard."""
+    print("\n  🚀 Starting Citrix AI Vision Agent Dashboard...")
+    print("     Opening http://127.0.0.1:5001\n")
+    
+    # Try to open browser
+    try:
+        import webbrowser
+        webbrowser.open("http://127.0.0.1:5001")
+    except:
+        pass
+        
+    return _run([_python(), str(ROOT / "ui" / "app.py")])
+
+
 # ── Help ──────────────────────────────────────────────────────────────────────
 
 def _usage() -> None:
@@ -201,6 +216,7 @@ def _usage() -> None:
   {launcher} run    <name>          Run a playbook (live)
   {launcher} run    <name> --dry-run   Preview steps, no actions
   {launcher} list                   List all playbooks
+  {launcher} ui                     Launch the web dashboard
   {"─" * 55}
     """)
 
@@ -239,6 +255,9 @@ def main() -> None:
 
     elif cmd == "list":
         sys.exit(cmd_list())
+
+    elif cmd == "ui":
+        sys.exit(cmd_ui())
 
     else:
         print(f"\n  ❌  Unknown command: '{cmd}'")

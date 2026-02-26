@@ -8,6 +8,7 @@
 ::    run run  <name>        Execute a playbook
 ::    run run  <name> --dry-run   Preview steps only
 ::    run list               List all playbooks
+::    run ui                 Launch the web dashboard
 :: ════════════════════════════════════════════════════════════════
 
 setlocal

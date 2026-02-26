@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Citrix AI Vision Agent — Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Fira+Code&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path
+                        d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                    </path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                <span>Vision Agent</span>
+            </div>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">Playbooks</div>
+            <ul class="nav-list" id="playbook-list">
+                <!-- Loaded via JS -->
+            </ul>
+            <div class="nav-item" id="btn-new-playbook" style="margin-top: 10px; color: var(--accent);">
+                <span>+ New Playbook</span>
+            </div>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">Regions</div>
+            <ul class="nav-list" id="region-list">
+                <!-- Loaded via JS -->
+            </ul>
+            <div class="nav-item" id="btn-setup-region" style="margin-top: 10px; color: var(--accent);">
+                <span>+ Setup New Region</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <header>
+            <div class="header-title">
+                <h1 id="current-playbook-name">Select a Playbook</h1>
+            </div>
+            <div class="header-actions">
+                <button class="secondary" id="btn-save">Save</button>
+                <button class="secondary" id="btn-dry-run">Dry Run</button>
+                <button class="primary" id="btn-run">Run Live</button>
+            </div>
+        </header>
+
+        <div class="workspace">
+            <div class="editor-area">
+                <textarea id="playbook-editor" spellcheck="false"
+                    placeholder="# Select a playbook to edit..."></textarea>
+            </div>
+            <div class="output-area">
+                <div class="output-header">
+                    <span>EXECUTION LOG</span>
+                    <span class="status-pill idle" id="agent-status">IDLE</span>
+                </div>
+                <div id="terminal-output">
+                    Welcome to Citrix AI Vision Agent.
+                    Ready for automation...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup Region Modal -->
+    <div id="modal-setup" class="modal">
+        <div class="modal-content">
+            <h2>Setup New Region</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">Select an application window to capture as a
+                named region.</p>
+
+            <div class="form-group">
+                <label>Region Name</label>
+                <input type="text" id="new-region-name" placeholder="eg: login_screen"
+                    style="width: 100%; padding: 8px; background: var(--bg-main); border: 1px solid var(--border); color: white; border-radius: 4px; margin-bottom: 15px;">
+            </div>
+
+            <div class="nav-title">Visible Windows</div>
+            <ul class="nav-list" id="modal-window-list"
+                style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
+                <!-- Windows loaded via JS -->
+            </ul>
+
+            <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="secondary" onclick="closeModal()">Cancel</button>
+                <button class="primary" id="btn-save-region">Save Region</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+
+</html>
