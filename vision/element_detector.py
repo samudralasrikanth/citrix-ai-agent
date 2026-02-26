@@ -73,13 +73,16 @@ class ElementDetector:
             for ocr in ocr_results:
                 ox1, oy1, ox2, oy2 = ocr["box"]
                 if ox1 < ex2 and ox2 > ex1 and oy1 < ey2 and oy2 > ey1:
+                    from vision.text_normalizer import normalize
+                    txt = normalize(ocr["text"])
                     sep = " " if elem["label"] else ""
-                    elem["label"] += sep + ocr["text"]
+                    elem["label"] += sep + txt
 
         seen: set[tuple] = {tuple(e["box"]) for e in elements}
         for ocr in ocr_results:
             if tuple(ocr["box"]) not in seen:
-                elements.append(_make_element(ocr["box"], ocr["text"], "ocr_only"))
+                from vision.text_normalizer import normalize
+                elements.append(_make_element(ocr["box"], normalize(ocr["text"]), "ocr_only"))
 
         return elements
 

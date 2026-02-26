@@ -35,6 +35,11 @@ OCR_USE_ANGLE_CLS: bool   = True
 OCR_MIN_CONFIDENCE: float = 0.55
 OCR_PREWARM: bool         = True    # Load model once at startup
 
+# ── Vision Detection (Contours) ──────────────────────────────────────────────
+EDGE_CANNY_LOW: int       = 50
+EDGE_CANNY_HIGH: int      = 150
+MIN_CONTOUR_AREA: int     = 100     # Pixels squared
+
 # ── Action Stability ──────────────────────────────────────────────────────────
 MAX_ACTION_RETRIES: int     = 3
 RETRY_BACKOFF_BASE: float   = 1.5   # 1.5s, 3s, 4.5s retries

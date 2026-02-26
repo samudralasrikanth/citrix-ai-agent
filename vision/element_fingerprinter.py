@@ -244,11 +244,14 @@ class ElementFingerprinter:
         Classify the element type from text patterns and visual cues.
         This mirrors Tosca's control-type classification.
         """
-        if _CHECKBOX_RE.match(text):
+        from vision.text_normalizer import normalize
+        norm = normalize(text)
+        
+        if _CHECKBOX_RE.match(norm):
             return "checkbox"
-        if _INPUT_RE.search(text):
+        if _INPUT_RE.search(norm):
             return "input_field"
-        if _BUTTON_RE.search(text):
+        if _BUTTON_RE.search(norm):
             return "button"
 
         # Visual cue: sample background colour inside box for button-like appearance
