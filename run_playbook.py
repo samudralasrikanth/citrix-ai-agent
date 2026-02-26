@@ -85,10 +85,12 @@ def run_production_test(context: ExecutionContext):
 
     # 3. Execution Phase
     steps = yaml.safe_load((context.test_path / "playbook.yaml").read_text()).get("steps", [])
+    total = len(steps)
+    context.stream_json("init", f"Loaded {total} steps.", total=total)
     
     for i, step in enumerate(steps, 1):
         try:
-            success = _execute_hardened_step(i, step, context)
+            success = _execute_hardened_step(i, step, context, total)
             if success:
                 context.steps_passed += 1
             else:
@@ -113,13 +115,13 @@ def run_production_test(context: ExecutionContext):
     report_path = context.test_path / "report_hardened.json"
     report_path.write_text(json.dumps(summary, indent=2))
 
-def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: ExecutionContext) -> bool:
+def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: ExecutionContext, total: int = 0) -> bool:
     """Atomic step execution with retry backoff and detailed logging."""
     action = step.get("action", "").lower()
     target = step.get("target", "")
-    metadata = {"step": step_idx, "action": action, "target": target}
+    metadata = {"step": step_idx, "action": action, "target": target, "current": step_idx, "total": total}
     
-    context.stream_json("step_start", f"Step {step_idx}: {action} {target}", **metadata)
+    context.stream_json("step_start", f"[{step_idx}/{total}] {action}: {target}", **metadata)
     
     if context.dry_run:
         return True
@@ -146,11 +148,13 @@ def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: Executi
             elements = context.detector.detect_contours(frame)
             elements = context.detector.merge_with_ocr(elements, ocr_results)
             
-            # 3. Offset mapping (absolute coordinates)
-            ox, oy = context.current_region.get("left", 0), context.current_region.get("top", 0)
+            # 3. Offset mapping: convert region-relative → absolute screen coordinates
+            reg = context.current_region or {}
+            ox  = int(reg.get("left", 0))
+            oy  = int(reg.get("top",  0))
             for e in elements:
-                e["cx"] += ox
-                e["cy"] += oy
+                e["cx"] = int(e.get("cx", 0)) + ox
+                e["cy"] = int(e.get("cy", 0)) + oy
             
             # 4. Execute
             res = context.executor.execute(
@@ -185,6 +189,9 @@ def main():
     
     ctx = None
     try:
+        # Pre-emptive signaling for a smoother UI experience
+        print(json.dumps({"status": "init", "message": "Preparing Vision Engine...", "timestamp": datetime.now().isoformat()}), flush=True)
+        
         ctx = ExecutionContext(args.folder, dry_run=args.dry_run)
         run_production_test(ctx)
     except Exception as e:

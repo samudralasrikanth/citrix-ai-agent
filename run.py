@@ -150,6 +150,12 @@ def cmd_run(playbook_arg: str, extra_flags: list[str]) -> int:
     path = Path(playbook_arg)
     if not path.exists():
         path = PLAYBOOKS / f"{playbook_arg.removesuffix('.yaml')}.yaml"
+    
+    # Check tests/ directory (recorder output)
+    if not path.exists():
+        test_path = ROOT / "tests" / playbook_arg / "playbook.yaml"
+        if test_path.exists():
+            path = test_path
 
     if not path.exists():
         print(f"\n  ❌  Playbook not found: {playbook_arg}")
@@ -165,25 +171,21 @@ def cmd_run(playbook_arg: str, extra_flags: list[str]) -> int:
 
 
 def cmd_list() -> int:
-    """List all available playbooks."""
-    PLAYBOOKS.mkdir(parents=True, exist_ok=True)
+    """List all available playbooks and tests."""
+    # Manual
     yamls = sorted(PLAYBOOKS.glob("*.yaml"))
+    # Recorded
+    tests = sorted([d for d in (ROOT / "tests").iterdir() if d.is_dir() and (d / "playbook.yaml").exists()])
 
-    print()
-    print("  Available playbooks:")
+    print(f"\n  Available Automation:")
     print("  " + "─" * 45)
-    if not yamls:
-        print("  (none — create one with: python run.py new <name>)")
+    
     for f in yamls:
-        name = f.stem
-        for line in f.read_text().splitlines():
-            if line.strip().startswith("name:"):
-                name = line.split(":", 1)[1].strip()
-                break
-        print(f"  {f.stem:<25} — {name}")
-    print()
-    print("  To run:  python run.py run <name>")
-    print()
+        print(f"  {f.stem:<25} — (Manual Playbook)")
+    for d in tests:
+        print(f"  {d.name:<25} — (Recorded Session)")
+        
+    print(f"\n  To run:  ./run.sh run <name>\n")
     return 0
 
 
@@ -204,17 +206,30 @@ def cmd_ui() -> int:
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
+# ── Actions ───────────────────────────────────────────────────────────────────
+
+def cmd_record(test_name: str, region_name: str = "") -> int:
+    """Launch the vision-assisted recorder."""
+    python_bin = sys.executable
+    recorder_path = ROOT / "agent" / "recorder.py"
+    
+    cmd = [python_bin, str(recorder_path), test_name]
+    if region_name: cmd.append(region_name)
+    
+    return subprocess.run(cmd).returncode
+
 def _usage() -> None:
     launcher = "run.bat" if IS_WINDOWS else "./run.sh"
     print(f"""
-  Citrix AI Vision Agent
+  Citrix AI Vision Agent — Record & Play
   {"─" * 55}
-  {launcher} setup                  Select window → save region
-  {launcher} setup  <name>          Save region with a name
-  {launcher} regions                List all saved regions
-  {launcher} new    <name>          Create a new test playbook
+  {launcher} setup                  Select window → save region (Required first)
+  {launcher} record <name>          RECORD your actions live (Creates YAML)
   {launcher} run    <name>          Run a playbook (live)
   {launcher} run    <name> --dry-run   Preview steps, no actions
+  
+  {launcher} regions                List all saved regions
+  {launcher} new    <name>          Create a new blank test playbook
   {launcher} list                   List all playbooks
   {launcher} ui                     Launch the web dashboard
   {"─" * 55}
@@ -245,6 +260,12 @@ def main() -> None:
             print("  e.g.:  python run.py new citrix_login\n")
             sys.exit(1)
         sys.exit(cmd_new(args[1]))
+
+    elif cmd == "record":
+        if len(sys.argv) < 3:
+            print("\n  ❌  Usage: run record <test_name> [region_name]")
+            sys.exit(1)
+        sys.exit(cmd_record(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else ""))
 
     elif cmd == "run":
         if len(args) < 2:

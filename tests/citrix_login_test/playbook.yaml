@@ -1,0 +1,21 @@
+name: Citrix_Login_Test
+description: Recorded on 2026-02-26 16:40
+steps:
+- action: click
+  target: '[1031, 495]'
+  description: Auto-recorded click on [1031, 495]
+- action: click
+  target: '[778, 861]'
+  description: Auto-recorded click on [778, 861]
+- action: click
+  target: '[151, 287]'
+  description: Auto-recorded click on [151, 287]
+- action: click
+  target: '[129, 246]'
+  description: Auto-recorded click on [129, 246]
+- action: click
+  target: '[619, 219]'
+  description: Auto-recorded click on [619, 219]
+- action: click
+  target: '[1212, 625]'
+  description: Auto-recorded click on [1212, 625]
