@@ -101,14 +101,13 @@ def setup_region():
 @app.route("/api/run/<test_id>")
 def run_playbook(test_id):
     """
-    Production-grade SSE endpoint for execution monitoring.
-    Features sys.executable resolution and JSON stream parsing.
+    Bulletproof SSE runner with active heartbeats and crash-safe streaming.
     """
     dry_run = request.args.get("dry_run") == "true"
     
     def generate():
         test_path = TESTS_DIR / test_id
-        # Use sys.executable for 100% environment alignment
+        # Perfect alignment: use the exact same interpreter
         python_bin = sys.executable
         runner_path = ROOT / "run_playbook.py"
         
@@ -118,7 +117,8 @@ def run_playbook(test_id):
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         
-        yield f"data: {json.dumps({'status': 'init', 'message': f'Launching runner: {python_bin}'})}\n\n"
+        # 1. Connection Header
+        yield f"data: {json.dumps({'status': 'init', 'message': 'Booting hardened runner...'})}\n\n"
         
         try:
             process = subprocess.Popen(
@@ -131,20 +131,38 @@ def run_playbook(test_id):
                 env=env
             )
             
-            # Non-blocking stream reader
+            # 2. Active monitor loop with heartbeat
+            last_activity = time.time()
+            
+            # Configure non-blocking stdout reading
+            import fcntl
+            fd = process.stdout.fileno()
+            fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
             while True:
-                line = process.stdout.readline()
-                if not line and process.poll() is not None:
-                    break
-                if line:
-                    # Check if line is JSON (from our hardened runner) or raw text (from dependencies)
-                    try:
-                        # Validate JSON to ensure structured delivery
-                        json.loads(line)
-                        yield f"data: {line}\n\n"
-                    except:
-                        # Wrap legacy/unstructured output in a status object
-                        yield f"data: {json.dumps({'status': 'raw', 'message': line.strip()})}\n\n"
+                # Check for output
+                try:
+                    line = process.stdout.readline()
+                    if line:
+                        last_activity = time.time()
+                        try:
+                            json.loads(line)
+                            yield f"data: {line}\n\n"
+                        except:
+                            yield f"data: {json.dumps({'status': 'raw', 'message': line.strip()})}\n\n"
+                    elif process.poll() is not None:
+                        break
+                except (IOError, TypeError):
+                    # No data to read yet
+                    pass
+
+                # 3. Heartbeat (every 5 seconds)
+                if time.time() - last_activity > 5:
+                    yield ": ping\n\n"
+                    last_activity = time.time()
+
+                time.sleep(0.1)
             
             process.stdout.close()
             rc = process.wait()
@@ -152,14 +170,18 @@ def run_playbook(test_id):
             if rc == 0:
                 yield f"data: {json.dumps({'status': 'finish', 'message': 'Execution successful.'})}\n\n"
             else:
-                yield f"data: {json.dumps({'status': 'error', 'message': f'Runner exited with code {rc}'})}\n\n"
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Process stopped with code {rc}'})}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'message': f'Internal Launch Failure: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Launch Failure: {str(e)}'})}\n\n"
             
         yield "data: [DONE]\n\n"
 
-    return Response(generate(), mimetype="text/event-stream")
+    return Response(generate(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Transfer-Encoding": "chunked",
+        "Connection": "keep-alive"
+    })
 
 if __name__ == "__main__":
     app.run(port=5001, debug=True)
