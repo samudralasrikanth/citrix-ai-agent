@@ -318,7 +318,15 @@ let _recordStepCount = 0;
 function openRecordModal() {
     _recordTestId = null;
     _recordStepCount = 0;
-    $('record-test-name').value = '';
+
+    // If a test is selected, suggest it for appending
+    if (state.currentId) {
+        $('record-test-name').value = state.currentId;
+        _recordTestId = state.currentId;
+    } else {
+        $('record-test-name').value = '';
+    }
+
     _setRecordState('idle');
     $('modal-record').classList.add('active');
     setTimeout(() => $('record-test-name').focus(), 80);
@@ -374,7 +382,24 @@ async function captureRecordStep() {
     if (!_recordTestId) return;
     const btn = $('btn-capture-step');
     btn.disabled = true;
-    btn.textContent = 'Capturing…';
+
+    // Countdown logic to allow user to move mouse to Citrix window
+    let countdown = 2;
+    const originalHtml = btn.innerHTML;
+
+    const timer = setInterval(() => {
+        if (countdown > 0) {
+            btn.textContent = `Capturing in ${countdown}…`;
+            countdown--;
+        } else {
+            clearInterval(timer);
+            _performCapture(btn, originalHtml);
+        }
+    }, 700);
+}
+
+async function _performCapture(btn, originalHtml) {
+    btn.textContent = 'Scanning…';
     try {
         const res = await fetch(`/api/record/${_recordTestId}/capture`, { method: 'POST' });
         const data = await res.json();
@@ -382,12 +407,14 @@ async function captureRecordStep() {
             _recordStepCount++;
             $('record-step-count').textContent =
                 `${_recordStepCount} step${_recordStepCount !== 1 ? 's' : ''} recorded`;
+            logEntry('success', `Captured step #${_recordStepCount} for ${_recordTestId}`);
         }
     } catch (_) { }
+
     setTimeout(() => {
         btn.disabled = false;
-        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" fill="currentColor"></circle><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"></path></svg> Capture Step`;
-    }, 900);
+        btn.innerHTML = originalHtml;
+    }, 1000);
 }
 
 async function stopRecording() {

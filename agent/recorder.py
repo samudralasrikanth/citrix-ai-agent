@@ -14,6 +14,7 @@ Shell: ./run.sh record <test_name>
 from __future__ import annotations
 
 import json
+import signal
 import sys
 import time
 from pathlib import Path
@@ -77,6 +78,17 @@ class PlaybookRecorder:
         self.yaml_path     = self.test_path / "playbook.yaml"
         self.steps: List[Dict[str, Any]] = []
         self.session_start = time.time()
+        self._closing      = False
+        
+        # Load metadata if exists
+        self.metadata = {
+            "name": self.test_name.replace("_", " ").title(),
+            "description": f"Recorded session — {time.strftime('%Y-%m-%d %H:%M')}"
+        }
+
+        # Register termination handler
+        signal.signal(signal.SIGTERM, self._handle_terminate)
+        signal.signal(signal.SIGINT,  self._handle_terminate)
 
         _box([
             "  Citrix AI Vision Agent — Enterprise Recorder",
@@ -91,12 +103,21 @@ class PlaybookRecorder:
         self.fingerprinter= ElementFingerprinter()
         self.region       = self._load_region(region_name)
 
-        # Copy region file to test folder for portability
-        src = config.MEMORY_DIR / ("region.json" if not region_name
-                                    else f"regions/{region_name}.json")
-        (self.test_path / "region.json").write_text(src.read_text())
-
-        if not self.yaml_path.exists():
+        if self.yaml_path.exists():
+            try:
+                existing_data = yaml.safe_load(self.yaml_path.read_text(encoding="utf-8"))
+                if existing_data:
+                    if "steps" in existing_data:
+                        self.steps = existing_data["steps"]
+                        print(f"  {C.YELLOW}ℹ  Loaded {len(self.steps)} existing steps.{C.RESET}")
+                    # Preserve existing name/desc
+                    if "name" in existing_data:
+                        self.metadata["name"] = existing_data["name"]
+                    if "description" in existing_data:
+                        self.metadata["description"] = existing_data["description"]
+            except Exception as e:
+                print(f"  {C.RED}⚠  Could not load existing playbook: {e}{C.RESET}")
+        else:
             self._save_yaml()
 
         print(f"{C.GREEN}✓ Ready.{C.RESET}\n")
@@ -105,13 +126,26 @@ class PlaybookRecorder:
     # ── Region ──────────────────────────────────────────────────────────────────
 
     def _load_region(self, name: str) -> Dict[str, Any]:
+        # 1. Try test-specific region first (scaffolded by UI)
+        test_region_path = self.test_path / "region.json"
+        if test_region_path.exists():
+            data = json.loads(test_region_path.read_text())
+            r = data.get("region", data)
+            print(f"\n{C.CYAN}📍 Using suite-specific region:{C.RESET} {r['width']}x{r['height']}")
+            return r
+
+        # 2. Fallback to global memory dirs
         path = config.MEMORY_DIR / ("region.json" if not name else f"regions/{name}.json")
         if not path.exists():
-            print(f"\n{C.RED}✗ No region found at {path}")
-            print(f"  Run './run.sh setup' first to capture your window.{C.RESET}")
+            print(f"\n{C.RED}✗ No region.json found in {self.test_path} or {config.MEMORY_DIR}")
+            print(f"  Run 'New Test Suite' in the dashboard first.{C.RESET}")
             sys.exit(1)
+        
         data = json.loads(path.read_text())
         r    = data.get("region", data)
+        # Copy for portability
+        test_region_path.write_text(path.read_text())
+        
         print(f"\n{C.CYAN}📍 Target Region:{C.RESET}  {r['width']}×{r['height']}  "
               f"@ ({r['left']},{r['top']})")
         return r
@@ -193,6 +227,14 @@ class PlaybookRecorder:
         else:
             print(f"  {C.GRAY}Nothing to undo.{C.RESET}")
 
+    def _handle_terminate(self, signum, frame):
+        """Ensure save on external stop signal."""
+        if not self._closing:
+            self._closing = True
+            print(f"\n  {C.YELLOW}⏹  Termination signal received ({signum}). Saving and exiting…{C.RESET}")
+            self._save_yaml()
+            sys.exit(0)
+
     # ── Persistence ────────────────────────────────────────────────────────────
 
     def _save_yaml(self) -> None:
@@ -210,8 +252,8 @@ class PlaybookRecorder:
             clean.append(cs)
 
         data = {
-            "name":        self.test_name.replace("_", " ").title(),
-            "description": f"Recorded session — {time.strftime('%Y-%m-%d %H:%M')}",
+            "name":        self.metadata["name"],
+            "description": self.metadata["description"],
             "steps":       clean,
         }
         with open(self.yaml_path, "w", encoding="utf-8") as f:
