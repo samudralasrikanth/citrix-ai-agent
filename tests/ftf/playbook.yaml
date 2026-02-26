@@ -1,0 +1,5 @@
+name: Ftf
+description: Automation suite for Google Chrome
+steps:
+  - action: screenshot
+    description: Initial state capture

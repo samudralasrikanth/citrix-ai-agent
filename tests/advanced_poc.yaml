@@ -1,0 +1,31 @@
+name: Multi-Channel Enterprise POC
+description: Demonstration of Hybrid API + Vision automation workflow
+steps:
+  - action: call
+    target: SessionInit
+    channel: api
+    config:
+      method: GET
+      url: https://api.github.com/zen
+    description: 1. Initialize session via API heartbeat
+
+  - action: click
+    target: OK
+    channel: vision
+    description: 2. Handle Citrix greeting dialog
+
+  - action: type
+    target: Search
+    value: AI Agent
+    channel: vision
+    description: 3. Type into Citrix application search bar
+
+  - action: click
+    target: Connect
+    channel: vision
+    description: 4. Trigger enterprise connection
+
+  - action: verify
+    target: Success
+    channel: vision
+    description: 5. Verify final state visually
