@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════════
 #  Citrix AI Vision Agent  —  Command Runner
 #  Works like UFT / Tosca: setup → write playbook → run

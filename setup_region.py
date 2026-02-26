@@ -2,14 +2,16 @@
 Region Setup — Citrix AI Vision Agent
 ======================================
 Simple numbered menu — pick a window, optionally trim to sub-area, done.
+Works on macOS (AppleScript) and Windows (win32 API).
 
 Usage:
-    python setup_region.py
+    python setup_region.py          # or: python run.py setup
 """
 
 from __future__ import annotations
 
 import json
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -17,10 +19,14 @@ from pathlib import Path
 REGION_FILE = Path(__file__).parent / "memory" / "region.json"
 REGION_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+IS_WINDOWS = platform.system() == "Windows"
+IS_MAC     = platform.system() == "Darwin"
 
-# ── Window list via AppleScript ───────────────────────────────────────────────
 
-def _get_windows() -> list[dict]:
+# ── Window list (cross-platform) ─────────────────────────────────────────────
+
+def _get_windows_mac() -> list[dict]:
+    """List visible windows via AppleScript (macOS)."""
     script = """
     set output to ""
     tell application "System Events"
@@ -66,6 +72,57 @@ def _get_windows() -> list[dict]:
         return []
 
 
+def _get_windows_win() -> list[dict]:
+    """List visible windows via Windows ctypes (no extra deps needed)."""
+    import ctypes
+    import ctypes.wintypes
+
+    EnumWindows        = ctypes.windll.user32.EnumWindows
+    GetWindowText      = ctypes.windll.user32.GetWindowTextW
+    GetWindowTextLen   = ctypes.windll.user32.GetWindowTextLengthW
+    IsWindowVisible    = ctypes.windll.user32.IsWindowVisible
+    GetWindowRect      = ctypes.windll.user32.GetWindowRect
+
+    wins = []
+
+    def _cb(hwnd, _):
+        if not IsWindowVisible(hwnd):
+            return True
+        length = GetWindowTextLen(hwnd)
+        if length == 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        GetWindowText(hwnd, buf, length + 1)
+        title = buf.value.strip()
+        if not title:
+            return True
+        rect = ctypes.wintypes.RECT()
+        GetWindowRect(hwnd, ctypes.byref(rect))
+        w = rect.right  - rect.left
+        h = rect.bottom - rect.top
+        if w > 80 and h > 80:
+            wins.append({"name": title, "left": rect.left, "top": rect.top,
+                         "width": w, "height": h})
+        return True
+
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+    EnumWindows(WNDENUMPROC(_cb), 0)
+    return wins
+
+
+def _get_windows() -> list[dict]:
+    """Return visible windows using the right API for the current OS."""
+    try:
+        if IS_WINDOWS:
+            return _get_windows_win()
+        elif IS_MAC:
+            return _get_windows_mac()
+        return []
+    except Exception:
+        return []
+
+
+
 # ── Input helpers ─────────────────────────────────────────────────────────────
 
 def _ask_int(prompt: str, default: int) -> int:
@@ -100,8 +157,11 @@ def main() -> None:
             print(f"    [{i:2d}]  {w['name']:<38} {w['width']}×{w['height']}")
         print(f"    [ 0]  Enter coordinates manually\n")
     else:
-        print("\n  No windows detected via AppleScript.")
-        print("  (Grant Accessibility access: System Settings → Privacy → Accessibility → Terminal)\n")
+        if IS_MAC:
+            print("\n  No windows detected.")
+            print("  Tip: System Settings → Privacy & Security → Accessibility → add Terminal\n")
+        else:
+            print("\n  No windows detected — enter coordinates manually.\n")
 
     # ── Pick window ───────────────────────────────────────────────────────────
     base: dict | None = None
@@ -164,11 +224,17 @@ def main() -> None:
     print(f"     height  : {height}")
     print()
     print("  ─────────────────────────────────────────────────────")
-    print("  Next:")
-    print("    ./run.sh list                     ← see playbooks")
-    print("    ./run.sh new  my_test             ← create a test")
-    print("    ./run.sh run  my_test --dry-run   ← preview steps")
-    print("    ./run.sh run  my_test             ← run live")
+    if IS_WINDOWS:
+        print("  Next (Windows):")
+        print("    run list                       ← see playbooks")
+        print("    run new  my_test               ← create a test")
+        print("    run run  my_test --dry-run     ← preview steps")
+        print("    run run  my_test               ← run live")
+    else:
+        print("  Next (Mac/Linux):")
+        print("    python run.py list             ← see playbooks")
+        print("    python run.py new  my_test     ← create a test")
+        print("    python run.py run  my_test     ← run live")
     print()
 
 
