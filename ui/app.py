@@ -12,12 +12,8 @@ from setup_region import _get_windows
 
 app = Flask(__name__)
 
-ROOT = Path(__file__).parent.parent
 TESTS_DIR = ROOT / "tests"
 TESTS_DIR.mkdir(parents=True, exist_ok=True)
-
-from capture.screen_capture import ScreenCapture
-capturer = ScreenCapture()
 
 # Utility to find venv python
 def get_python():
@@ -144,7 +140,10 @@ def setup_region():
     
     # 2. Capture and save reference.png
     import cv2
-    full_img = capturer.capture()
+    from capture.screen_capture import ScreenCapture
+    cap = ScreenCapture()
+    full_img = cap.capture()
+    cap.close()
     # Crop the exact window
     top, left = window["top"], window["left"]
     w, h = window["width"], window["height"]

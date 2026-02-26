@@ -92,6 +92,39 @@ body {
     color: var(--accent);
 }
 
+/* File Explorer Styles */
+.test-container {
+    margin-bottom: 5px;
+}
+
+.file-list {
+    margin-left: 20px;
+    border-left: 1px solid var(--border);
+    padding-left: 10px;
+}
+
+.file-item {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: var(--transition);
+}
+
+.file-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.file-item.active {
+    color: var(--accent);
+    background: rgba(0, 220, 80, 0.05);
+}
+
 /* Main Content */
 .main-content {
     flex: 1;

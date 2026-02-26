@@ -128,8 +128,6 @@ function renderPlaybookList() {
 
         const fileList = document.createElement('ul');
         fileList.className = 'file-list';
-        fileList.style.paddingLeft = '30px';
-        fileList.style.listStyle = 'none';
         if (!state.expandedTests.has(pb.id)) fileList.style.display = 'none';
 
         folderLi.onclick = async () => {
@@ -157,10 +155,6 @@ function renderFileList(testId, files, container) {
     files.forEach(file => {
         const li = document.createElement('li');
         li.className = 'file-item';
-        li.style.padding = '5px 0';
-        li.style.cursor = 'pointer';
-        li.style.fontSize = '0.85rem';
-        li.style.color = 'var(--text-secondary)';
         li.dataset.test = testId;
         li.dataset.file = file;
 
@@ -169,17 +163,14 @@ function renderFileList(testId, files, container) {
         if (file.endsWith('.json')) icon = '⚙️';
 
         li.innerHTML = `<span>${icon} ${file}</span>`;
+        if (state.currentPlaybook === testId && state.currentFile === file) {
+            li.classList.add('active');
+        }
+
         li.onclick = (e) => {
             e.stopPropagation();
             loadPlaybook(testId, file);
         };
-        // Add hover effect via JS since we are doing inline styles for speed
-        li.onmouseover = () => li.style.color = 'var(--accent)';
-        li.onmouseout = () => {
-            if (state.currentPlaybook === testId && state.currentFile === file) return;
-            li.style.color = 'var(--text-secondary)';
-        };
-
         container.appendChild(li);
     });
 }
