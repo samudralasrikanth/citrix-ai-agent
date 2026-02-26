@@ -1,43 +1,72 @@
-"""
-Centralised logging setup for the Citrix AI Vision Agent.
-Call get_logger(__name__) in every module.
-"""
-
 import logging
+import json
+import os
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict
 
 import config
 
-
-def get_logger(name: str) -> logging.Logger:
+class JsonFormatter(logging.Formatter):
     """
-    Return a module-level logger wired to both console and file.
-
-    Args:
-        name: Typically __name__ of the calling module.
-
-    Returns:
-        Configured Logger instance.
+    Custom formatter that outputs logs as JSON strings.
     """
+    def format(self, record):
+        log_data = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage()
+        }
+        
+        # Merge extra attributes if present
+        if hasattr(record, "extra_data") and isinstance(record.extra_data, dict):
+            log_data.update(record.extra_data)
+            
+        return json.dumps(log_data)
+
+def get_logger(name: str):
     logger = logging.getLogger(name)
-
+    
+    # Avoid duplicate handlers
     if logger.handlers:
-        return logger  # Already configured for this name
-
-    logger.setLevel(getattr(logging, config.LOG_LEVEL, logging.DEBUG))
-
-    fmt = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    fh = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
-    logger.propagate = False
+        return logger
+        
+    logger.setLevel(os.environ.get("LOG_LEVEL", config.LOG_LEVEL))
+    
+    # ── Console Handler ──────────────────────────────────────────
+    console = logging.StreamHandler(sys.stdout)
+    if config.LOG_FORMAT == "json":
+        console.setFormatter(JsonFormatter())
+    else:
+        console.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+    logger.addHandler(console)
+    
+    # ── File Handler (Enterprise Audit Trail) ───────────────────
+    if config.LOGS_DIR:
+        file_handler = logging.FileHandler(config.LOG_FILE)
+        file_handler.setFormatter(JsonFormatter())
+        logger.addHandler(file_handler)
+        
     return logger
+
+class ExecutionLogger:
+    """
+    Special helper for logging structured test step information.
+    """
+    def __init__(self, test_name: str, execution_id: str = None):
+        self.test_name = test_name
+        self.execution_id = execution_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.log_path = config.LOGS_DIR / f"exec_{self.test_name}_{self.execution_id}.jsonl"
+        
+    def log_step(self, step_data: Dict[str, Any]):
+        """Append a structured JSON line for one step."""
+        step_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "test": self.test_name,
+            "execution_id": self.execution_id,
+            **step_data
+        }
+        with open(self.log_path, "a") as f:
+            f.write(json.dumps(step_entry) + "\n")

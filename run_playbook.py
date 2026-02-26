@@ -1,182 +1,184 @@
 """
-Playbook Runner (Folder Based) — Citrix AI Vision Agent
-======================================================
-1. Loads a test from a folder path.
-2. DYNAMICALLY scans the screen for 'reference.png' to find the window.
-3. Executes steps relative to the window's current position.
+Enterprise Playbook Runner — Citrix AI Vision Agent
+Robust, observable, and hardened for production use.
 """
-
 from __future__ import annotations
 import argparse
 import json
 import sys
 import time
+import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-import yaml
+from typing import Any, Dict, List, Optional
 
 import config
 from capture.screen_capture import ScreenCapture
 from vision.ocr_engine import OcrEngine
 from vision.element_detector import ElementDetector
-from vision.screen_state import build_screen_state
 from agent.action_executor import ActionExecutor
-from agent.memory_manager import MemoryManager
-from utils.logger import get_logger
+from utils.logger import get_logger, ExecutionLogger
+from utils.validator import validate_playbook_schema
 
 log = get_logger(__name__)
-DIVIDER = "─" * 60
 
-def run_test_folder(folder_path: Path, dry_run: bool = False, stop_on_fail: bool = True) -> None:
-    if not folder_path.exists() or not folder_path.is_dir():
-        print(f"\n❌ Test folder not found: {folder_path}\n")
-        sys.exit(1)
-
-    pb_path = folder_path / "playbook.yaml"
-    ref_path = folder_path / "reference.png"
-    reg_path = folder_path / "region.json"
-
-    if not pb_path.exists():
-        print(f"❌ playbook.yaml missing in {folder_path}")
-        sys.exit(1)
-
-    data = yaml.safe_load(pb_path.read_text())
-    name = data.get("name", folder_path.name)
-    steps = data.get("steps", [])
-
-    print()
-    print("┌──────────────────────────────────────────────────────┐")
-    print(f"│  Test Case : {name[:40]:<41}│")
-    print(f"│  Folder    : {folder_path.name[:40]:<41}│")
-    print(f"│  Mode      : {'DRY RUN' if dry_run else 'LIVE RUN':<41}│")
-    print("└──────────────────────────────────────────────────────┘")
-
-    capturer = ScreenCapture()
-    
-    # ── DYNAMIC WINDOW LOCATION ───────────────────────────────────────────────
-    print("\n🔍 Scanning screen to locate application window...")
-    current_region = capturer.locate_window(ref_path)
-    
-    if current_region:
-        print(f"✅ Found window at: {current_region['left']}, {current_region['top']} ({current_region['width']}x{current_region['height']})")
-    else:
-        # Fallback to saved region if reference image match fails
-        if reg_path.exists():
-            print("⚠️  Reference image match failed. Using last saved region info.")
-            reg_data = json.loads(reg_path.read_text())
-            current_region = reg_data.get("region", reg_data)
-        else:
-            print("❌ Could not locate window and no region info exists.")
-            sys.exit(1)
-
-    # ── Init Components ───────────────────────────────────────────────────────
-    ocr = OcrEngine()
-    detector = ElementDetector()
-    executor = ActionExecutor()
-    memory = MemoryManager()
-    
-    print(DIVIDER)
-    passed = failed = skipped = 0
-
-    for i, step in enumerate(steps, 1):
-        if step.get("skip"):
-            print(f"\nStep {i:02d}: [SKIPPED] {step.get('description', '')}")
-            skipped += 1
-            continue
-
-        # Execute step using the dynamic current_region
-        ok = _run_step(i, step, capturer, ocr, detector, executor, memory, current_region, dry_run)
-
-        if ok: passed += 1
-        else:
-            failed += 1
-            if stop_on_fail and not dry_run:
-                print(f"\n⛔ Stopping at step {i} (failure).")
-                break
-
-    print()
-    print(DIVIDER)
-    print(f"Results:  ✅ {passed} passed  |  ❌ {failed} failed  |  ⏭  {skipped} skipped")
-    print(DIVIDER)
-    
-    # Generate report.json
-    report = {
-        "test_name": name,
-        "timestamp": datetime.now().isoformat(),
-        "mode": "DRY RUN" if dry_run else "LIVE RUN",
-        "results": {
-            "passed": passed,
-            "failed": failed,
-            "skipped": skipped,
-            "status": "PASSED" if failed == 0 else "FAILED"
+class ExecutionContext:
+    """Manages state for a single playbook execution."""
+    def __init__(self, test_path: Path, dry_run: bool = False):
+        self.test_path = test_path
+        self.test_id = test_path.name
+        self.dry_run = dry_run
+        self.start_time = datetime.now()
+        
+        # Core Components
+        self.capturer = ScreenCapture()
+        self.ocr = OcrEngine()
+        self.detector = ElementDetector()
+        self.executor = ActionExecutor()
+        
+        # Execution State
+        self.current_region = None
+        self.steps_passed = 0
+        self.steps_failed = 0
+        self.audit_log = ExecutionLogger(self.test_id)
+        
+    def stream_json(self, status: str, message: str, **kwargs):
+        """Stream structured JSON to stdout for parent process parsing."""
+        payload = {
+            "status": status,
+            "message": message,
+            "timestamp": datetime.now().isoformat(),
+            **kwargs
         }
+        print(json.dumps(payload), flush=True)
+
+    def close(self):
+        self.capturer.close()
+
+def run_production_test(context: ExecutionContext):
+    """Execution logic utilizing state isolation and error classification."""
+    
+    # 1. Validation Phase
+    context.stream_json("init", f"Starting hardened runner for: {context.test_id}")
+    
+    pb_res = validate_playbook_schema(context.test_path / "playbook.yaml")
+    if not pb_res.is_valid:
+        error_msg = f"Playbook Validation Failed: {'; '.join(pb_res.errors)}"
+        context.stream_json("error", error_msg, code=400)
+        return
+
+    # 2. Initialization Phase
+    ref_path = context.test_path / "reference.png"
+    reg_path = context.test_path / "region.json"
+    
+    context.stream_json("scan", "Aligning interface coordinates...")
+    context.current_region = context.capturer.locate_window(ref_path)
+    
+    if not context.current_region:
+        if reg_path.exists():
+            reg_data = json.loads(reg_path.read_text())
+            context.current_region = reg_data.get("region", reg_data)
+            context.stream_json("warning", "Visual match failed, falling back to static region.")
+        else:
+            context.stream_json("error", "Target window not found and no region data exists.", code=config.ERROR_CODES["ERR_MATCH_FAIL"])
+            return
+
+    # 3. Execution Phase
+    steps = yaml.safe_load((context.test_path / "playbook.yaml").read_text()).get("steps", [])
+    
+    for i, step in enumerate(steps, 1):
+        try:
+            success = _execute_hardened_step(i, step, context)
+            if success:
+                context.steps_passed += 1
+            else:
+                context.steps_failed += 1
+                if not context.dry_run:
+                    context.stream_json("error", f"Abort: Step {i} failed.", step=i)
+                    break
+        except Exception as e:
+            context.stream_json("error", f"Step {i} crashed: {str(e)}", step=i, code=500)
+            break
+
+    # 4. Reporting Phase
+    summary = {
+        "passed": context.steps_passed,
+        "failed": context.steps_failed,
+        "total": len(steps),
+        "duration": (datetime.now() - context.start_time).total_seconds()
     }
-    with open(folder_path / "report.json", "w") as f:
-        json.dump(report, f, indent=2)
-    print(f"📝 Report saved to: {folder_path / 'report.json'}")
+    context.stream_json("finish", "Audit complete.", summary=summary)
+    
+    # Save Final Report
+    report_path = context.test_path / "report_hardened.json"
+    report_path.write_text(json.dumps(summary, indent=2))
 
-    capturer.close()
-
-def _run_step(step_num, step, capturer, ocr, detector, executor, memory, region, dry_run) -> bool:
+def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: ExecutionContext) -> bool:
+    """Atomic step execution with retry backoff and detailed logging."""
     action = step.get("action", "").lower()
     target = step.get("target", "")
-    value = step.get("value", "")
-    desc = step.get("description", "")
-    timeout = step.get("timeout", 10)
-    seconds = step.get("seconds", 1.0)
-
-    label = desc or f"{action} '{target}'"
-    print(f"\nStep {step_num:02d}: {label}")
-    if dry_run: return True
-
-    # ── Handle Offsets for Screen Clicking ──────────────────────────────────
-    ox, oy = region.get("left", 0), region.get("top", 0)
-
-    if action == "pause":
-        time.sleep(seconds)
-        return True
-
-    if action == "screenshot":
-        _, path = capturer.capture_and_save(region=region)
-        print(f"      → saved: {path}")
-        return True
-
-    # Capture with dynamic region
-    frame = capturer.capture(region=region)
-    ocr_results = ocr.extract(frame)
-    elements = detector.detect_contours(frame)
-    elements = detector.merge_with_ocr(elements, ocr_results)
+    metadata = {"step": step_idx, "action": action, "target": target}
     
-    # Map elements to absolute screen coordinates
-    for e in elements:
-        e["cx"] += ox
-        e["cy"] += oy
-        e["box"] = [e["box"][0] + ox, e["box"][1] + oy, e["box"][2] + ox, e["box"][3] + oy]
-
-    action_dict = {"action": action, "target_text": target, "value": value}
-    if action == "wait_for": action_dict["action"] = "wait_for"
-
-    result = executor.execute(
-        action=action_dict,
-        elements=elements,
-        capture_fn=lambda: capturer.capture(region=region),
-    )
-
-    if result["success"]:
-        print(f"      ✅ OK")
+    context.stream_json("step_start", f"Step {step_idx}: {action} {target}", **metadata)
+    
+    if context.dry_run:
         return True
-    else:
-        print(f"      ❌ FAILED: {result.get('error', 'unknown error')}")
-        return False
+
+    # Retry mechanism with backoff
+    for attempt in range(1, config.MAX_ACTION_RETRIES + 1):
+        try:
+            # 1. Capture and Vision
+            frame = context.capturer.capture(region=context.current_region)
+            ocr_results = context.ocr.extract(frame)
+            elements = context.detector.detect_contours(frame)
+            elements = context.detector.merge_with_ocr(elements, ocr_results)
+            
+            # 2. Offset mapping (absolute coordinates)
+            ox, oy = context.current_region.get("left", 0), context.current_region.get("top", 0)
+            for e in elements:
+                e["cx"] += ox
+                e["cy"] += oy
+            
+            # 3. Execute
+            res = context.executor.execute(
+                action={"action": action, "target_text": target, "value": step.get("value", "")},
+                elements=elements,
+                capture_fn=lambda: context.capturer.capture(region=context.current_region)
+            )
+            
+            # Log audit
+            context.audit_log.log_step({**metadata, "attempt": attempt, "res": res})
+            
+            if res["success"]:
+                context.stream_json("step_success", f"OK: {action}", step=step_idx)
+                return True
+                
+            # Backoff before retry
+            if attempt < config.MAX_ACTION_RETRIES:
+                sleep_time = config.RETRY_BACKOFF_BASE * attempt
+                context.stream_json("retry", f"No change, retrying in {sleep_time}s...", attempt=attempt)
+                time.sleep(sleep_time)
+                
+        except Exception as e:
+            log.error("Step execution error: %s", e)
+            
+    return False
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("folder", type=Path, help="Path to test folder")
+    parser.add_argument("folder", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     
-    run_test_folder(args.folder, dry_run=args.dry_run)
+    ctx = None
+    try:
+        ctx = ExecutionContext(args.folder, dry_run=args.dry_run)
+        run_production_test(ctx)
+    except Exception as e:
+        print(json.dumps({"status": "error", "message": f"Global failure: {str(e)}"}))
+        sys.exit(1)
+    finally:
+        if ctx: ctx.close()
 
 if __name__ == "__main__":
     main()

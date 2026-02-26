@@ -4,8 +4,8 @@ from typing import Dict, List, Optional
 
 # ── Environment Tweaks (Speed & Noise reduction) ──────────────────────────────
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-# Suppress urllib3 and other common warnings
 os.environ["PYTHONWARNINGS"] = "ignore"
+os.environ["SCREEN_CAPTURE_DEBUG"] = "False"
 
 # ── Project Root ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
@@ -14,43 +14,46 @@ BASE_DIR = Path(__file__).parent
 LOGS_DIR        = BASE_DIR / "logs"
 SCREENSHOTS_DIR = BASE_DIR / "screenshots"
 MEMORY_DIR      = BASE_DIR / "memory"
+TESTS_DIR       = BASE_DIR / "tests"
 
-for _d in (LOGS_DIR, SCREENSHOTS_DIR, MEMORY_DIR):
+for _d in (LOGS_DIR, SCREENSHOTS_DIR, MEMORY_DIR, TESTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
-# ── Screen Capture ────────────────────────────────────────────────────────────
-CAPTURE_MONITOR_INDEX: int               = 1       # 1 = primary monitor (mss convention)
-CAPTURE_REGION: Optional[Dict]           = None    # None = full screen
-                                                   # e.g. {"top":0,"left":0,"width":1920,"height":1080}
+# ── Subprocess Execution ──────────────────────────────────────────────────────
+SUBPROCESS_TIMEOUT_SEC: int = 300   # 5 mins max per sub-test
+PYTHON_EXECUTABLE: str      = os.sys.executable
 
-# ── OCR ───────────────────────────────────────────────────────────────────────
+# ── Screen Capture ────────────────────────────────────────────────────────────
+# MSS convention starts at 1 (0 is virtual screen summarizing all monitors)
+DEFAULT_MONITOR_INDEX: int = 1
+# Fallback strategy (MSS_STRICT, MSS_FALLBACK_PRIMARY, MSS_ANY)
+MONITOR_STRATEGY: str = "MSS_FALLBACK_PRIMARY"
+
+# ── OCR Initialization ────────────────────────────────────────────────────────
 OCR_LANG: str             = "en"
 OCR_USE_ANGLE_CLS: bool   = True
-OCR_MIN_CONFIDENCE: float = 0.55           # Drop results below this threshold
+OCR_MIN_CONFIDENCE: float = 0.55
+OCR_PREWARM: bool         = True    # Load model once at startup
 
-# ── Vision / Element Detection ────────────────────────────────────────────────
-EDGE_CANNY_LOW: int      = 50
-EDGE_CANNY_HIGH: int     = 150
-MIN_CONTOUR_AREA: int    = 400             # px² — minimum area to keep a region
+# ── Action Stability ──────────────────────────────────────────────────────────
+MAX_ACTION_RETRIES: int     = 3
+RETRY_BACKOFF_BASE: float   = 1.5   # 1.5s, 3s, 4.5s retries
+STEP_TIMEOUT_SEC: int       = 45    # Max time per individual step
+PIXEL_DIFF_THRESHOLD: float = 0.005 # Sensitivity for screen change detection
 
-# ── Similarity (RapidFuzz) ────────────────────────────────────────────────────
-FUZZY_MATCH_THRESHOLD: float = 85.0       # Score in [0,100]; above = match
+# ── Debug / Observability ─────────────────────────────────────────────────────
+# If True, saves detailed frame visualisations for every step
+SAVE_DEBUG_FRAMES: bool     = True
+LOG_FORMAT: str             = "json"  # Options: json, text
+LOG_LEVEL: str              = "DEBUG"
 
-# ── Action Execution ──────────────────────────────────────────────────────────
-
-STEP_DELAY_SEC: float         = 1.2       # Pause after every action
-PIXEL_DIFF_THRESHOLD: float   = 0.01      # > 1 % pixels changed = screen changed
-MAX_ACTION_RETRIES: int        = 3        # Retry an action this many times
-
-# ── Reward Engine ─────────────────────────────────────────────────────────────
-REWARD_SUCCESS: int   =  10
-REWARD_NO_CHANGE: int =  -5
-REWARD_ERROR: int     = -10
-ERROR_KEYWORDS: List[str] = ["error", "failed", "invalid", "exception", "not found"]
-
-# ── Memory ────────────────────────────────────────────────────────────────────
-MEMORY_FILE: Path = MEMORY_DIR / "action_memory.json"
-
-# ── Logging ───────────────────────────────────────────────────────────────────
-LOG_LEVEL: str  = "DEBUG"
-LOG_FILE: Path  = LOGS_DIR / "agent.log"
+# ── Error Codes ───────────────────────────────────────────────────────────────
+ERROR_CODES = {
+    "ERR_OCR_INIT":   1001,
+    "ERR_CAPTURE":    1002,
+    "ERR_MATCH_FAIL": 1003,
+    "ERR_TIMEOUT":    1004,
+    "ERR_PERM":       1005,
+    "ERR_NO_CHANGE":  1006,
+    "ERR_MODEL":      1007,
+}

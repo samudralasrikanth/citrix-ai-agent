@@ -1,36 +1,36 @@
+/**
+ * Hardened Frontend Dashboard for Citrix AI Vision Agent.
+ * Handles structured JSON log streams and modular file management.
+ */
+
 const state = {
     playbooks: [],
-    regions: [],
     currentPlaybook: null,
     currentFile: 'playbook.yaml',
     currentWindow: null,
-    expandedTests: new Set(),
-    isRunning: false
+    isRunning: false,
+    expandedTests: new Set()
 };
 
-// --- DOM Elements ---
+// UI Elements
 const playbookList = document.getElementById('playbook-list');
-const regionList = document.getElementById('region-list');
-const modalWindowList = document.getElementById('modal-window-list');
-const modalSetup = document.getElementById('modal-setup');
-const editor = document.getElementById('playbook-editor');
 const terminal = document.getElementById('terminal-output');
-const statusPill = document.getElementById('agent-status');
-const titleHeader = document.getElementById('current-playbook-name');
+const statusPill = document.getElementById('status-pill');
+const titleHeader = document.querySelector('.header-title h1');
 
 // --- Initialization ---
 async function init() {
-    await fetchPlaybooks();
     setupEventListeners();
+    await fetchPlaybooks();
 }
 
-// --- API Calls ---
 async function fetchPlaybooks() {
     const res = await fetch('/api/playbooks');
     state.playbooks = await res.json();
     renderPlaybookList();
 }
 
+// --- Playbook Operations ---
 async function loadPlaybook(id, filename = 'playbook.yaml') {
     state.currentPlaybook = id;
     state.currentFile = filename;
@@ -38,7 +38,6 @@ async function loadPlaybook(id, filename = 'playbook.yaml') {
     const editorArea = document.querySelector('.editor-area');
 
     if (filename.endsWith('.png')) {
-        // Show image preview
         editorArea.innerHTML = `
             <div style="flex:1; display:flex; align-items:center; justify-content:center; background:#000; overflow:hidden;">
                 <img src="/api/tests/${id}/image/${filename}" style="max-width:95%; max-height:95%; box-shadow:0 0 40px rgba(0,220,80,0.3); border-radius:4px;">
@@ -46,7 +45,6 @@ async function loadPlaybook(id, filename = 'playbook.yaml') {
         `;
         titleHeader.innerText = `${id} / ${filename} (Preview)`;
     } else {
-        // Restore textarea if it was replaced by image
         if (!document.getElementById('playbook-editor')) {
             editorArea.innerHTML = '<textarea id="playbook-editor" spellcheck="false" placeholder="# Select a file to edit..."></textarea>';
         }
@@ -59,7 +57,6 @@ async function loadPlaybook(id, filename = 'playbook.yaml') {
         titleHeader.innerText = `${id} / ${filename}`;
     }
 
-    // Highlight active item
     document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
     const fileEl = document.querySelector(`[data-test="${id}"][data-file="${filename}"]`);
     if (fileEl) fileEl.classList.add('active');
@@ -76,18 +73,16 @@ async function savePlaybook() {
         body: JSON.stringify({ content: currentEditor.value })
     });
     if (res.ok) {
-        logToTerminal(`\n✅ Saved: ${state.currentFile}`);
+        logToTerminal({ status: "success", message: `Saved: ${state.currentFile}` });
     }
 }
 
-function runPlaybook(dryRun = false) {
+async function runPlaybook(dryRun = false) {
     if (!state.currentPlaybook || state.isRunning) return;
 
     state.isRunning = true;
-    statusPill.innerText = dryRun ? 'DRY RUNNING' : 'RUNNING';
-    statusPill.className = 'status-pill success';
-    terminal.innerHTML = ''; // Clear logs
-    logToTerminal(`🚀 Starting ${state.currentPlaybook} ${dryRun ? '(Dry Run)' : ''}...\n`);
+    updateStatusPill(dryRun ? 'DRY RUNNING' : 'RUNNING', 'success');
+    terminal.innerHTML = '';
 
     const eventSource = new EventSource(`/api/run/${state.currentPlaybook}?dry_run=${dryRun}`);
 
@@ -95,18 +90,22 @@ function runPlaybook(dryRun = false) {
         if (event.data === '[DONE]') {
             eventSource.close();
             state.isRunning = false;
-            statusPill.innerText = 'IDLE';
-            statusPill.className = 'status-pill idle';
-            logToTerminal('\n🏁 Execution finished.');
-        } else {
-            logToTerminal(event.data);
+            updateStatusPill('IDLE', 'idle');
+            return;
+        }
+
+        try {
+            const data = JSON.parse(event.data);
+            logToTerminal(data);
+        } catch (e) {
+            logToTerminal({ status: "raw", message: event.data });
         }
     };
 
     eventSource.onerror = () => {
         eventSource.close();
         state.isRunning = false;
-        logToTerminal('\n❌ Connection lost or error occurred.');
+        logToTerminal({ status: "error", message: "Hardened connection lost. Verify backend health." });
     };
 }
 
@@ -138,7 +137,6 @@ function renderPlaybookList() {
             } else {
                 state.expandedTests.add(pb.id);
                 fileList.style.display = 'block';
-                // Fetch files
                 const res = await fetch(`/api/tests/${pb.id}/files`);
                 const files = await res.json();
                 renderFileList(pb.id, files, fileList);
@@ -164,9 +162,7 @@ function renderFileList(testId, files, container) {
         if (file.endsWith('.json')) icon = '⚙️';
 
         li.innerHTML = `<span>${icon} ${file}</span>`;
-        if (state.currentPlaybook === testId && state.currentFile === file) {
-            li.classList.add('active');
-        }
+        if (state.currentPlaybook === testId && state.currentFile === file) li.classList.add('active');
 
         li.onclick = (e) => {
             e.stopPropagation();
@@ -176,49 +172,81 @@ function renderFileList(testId, files, container) {
     });
 }
 
+// --- Terminal Log Processing ---
+function logToTerminal(data) {
+    const entry = document.createElement('div');
+    entry.style.marginBottom = '4px';
+    entry.style.fontSize = '0.85rem';
 
-function renderModalWindowList(windows) {
-    modalWindowList.innerHTML = '';
-    windows.forEach((win, index) => {
-        const li = document.createElement('li');
-        li.className = 'window-item';
-        li.innerHTML = `
-            <div>${win.name}</div>
-            <p>${win.width}x${win.height} at (${win.left}, ${win.top})</p>
-        `;
-        li.onclick = () => {
-            document.querySelectorAll('.window-item').forEach(el => el.classList.remove('selected'));
-            li.classList.add('selected');
-            state.currentWindow = win;
-        };
-        modalWindowList.appendChild(li);
-    });
+    let prefix = '➤ ';
+    let color = '#00dc50';
+
+    switch (data.status) {
+        case 'init': color = '#79c0ff'; prefix = '⚙ '; break;
+        case 'error': color = '#ff7b72'; prefix = '❌ '; break;
+        case 'warning': color = '#ffa657'; prefix = '⚠️ '; break;
+        case 'step_start': color = '#d1d5db'; prefix = '⦿ '; break;
+        case 'step_success': color = '#00dc50'; prefix = '✓ '; break;
+        case 'finish': color = '#d2a8ff'; prefix = '🏁 '; break;
+        case 'raw': color = '#8b949e'; prefix = ''; break;
+    }
+
+    entry.style.color = color;
+    entry.innerHTML = `<span style="opacity:0.6">${new Date().toLocaleTimeString()}</span> ${prefix} ${data.message}`;
+
+    if (data.summary) {
+        const pre = document.createElement('pre');
+        pre.style.marginTop = '4px';
+        pre.style.paddingLeft = '15px';
+        pre.style.color = '#79c0ff';
+        pre.innerText = JSON.stringify(data.summary, null, 2);
+        entry.appendChild(pre);
+    }
+
+    terminal.appendChild(entry);
+    terminal.scrollTop = terminal.scrollHeight;
 }
 
+function updateStatusPill(text, type) {
+    statusPill.innerText = text;
+    statusPill.className = `status-pill ${type}`;
+}
+
+// --- Modal & Window Handling ---
 function openModal() {
-    modalSetup.classList.add('active');
+    document.getElementById('modal').classList.add('active');
     fetchWindows();
 }
 
 function closeModal() {
-    modalSetup.classList.remove('active');
-    state.currentWindow = null;
-    document.getElementById('new-region-name').value = '';
+    document.getElementById('modal').classList.remove('active');
 }
 
 async function fetchWindows() {
-    modalWindowList.innerHTML = '<div style="padding:20px; text-align:center;">Scanning windows...</div>';
     const res = await fetch('/api/windows');
     const windows = await res.json();
     renderModalWindowList(windows);
 }
 
+function renderModalWindowList(windows) {
+    const container = document.getElementById('window-list');
+    container.innerHTML = '';
+    windows.forEach(win => {
+        const div = document.createElement('div');
+        div.className = 'window-item';
+        div.innerHTML = `<strong>${win.name}</strong><p>${win.width}x${win.height} at [${win.left}, ${win.top}]</p>`;
+        div.onclick = () => {
+            document.querySelectorAll('.window-item').forEach(el => el.classList.remove('selected'));
+            div.classList.add('selected');
+            state.currentWindow = win;
+        };
+        container.appendChild(div);
+    });
+}
+
 async function saveRegion() {
     const name = document.getElementById('new-region-name').value;
-    if (!name || !state.currentWindow) {
-        alert('Please provide a name and select a window.');
-        return;
-    }
+    if (!name || !state.currentWindow) return alert('Provide a name and select a window.');
 
     const res = await fetch('/api/regions/setup', {
         method: 'POST',
@@ -229,17 +257,10 @@ async function saveRegion() {
     if (res.ok) {
         closeModal();
         state.expandedTests.add(name);
-        await fetchPlaybooks(); // Refresh the list
-        await loadPlaybook(name); // Load it immediately
-        logToTerminal(`\n✅ Test Case '${name}' created successfully.`);
+        await fetchPlaybooks();
+        await loadPlaybook(name);
+        logToTerminal({ status: "success", message: `Test Case '${name}' created successfully.` });
     }
-}
-
-function logToTerminal(text) {
-    const span = document.createElement('div');
-    span.innerText = text;
-    terminal.appendChild(span);
-    terminal.scrollTop = terminal.scrollHeight;
 }
 
 // --- Events ---
@@ -247,21 +268,11 @@ function setupEventListeners() {
     document.getElementById('btn-save').onclick = savePlaybook;
     document.getElementById('btn-run').onclick = () => runPlaybook(false);
     document.getElementById('btn-dry-run').onclick = () => runPlaybook(true);
-
-    const btnNewTest = document.getElementById('btn-new-test');
-    if (btnNewTest) {
-        btnNewTest.onclick = openModal;
-    }
-
-    const btnSaveRegion = document.getElementById('btn-save-region');
-    if (btnSaveRegion) {
-        btnSaveRegion.onclick = saveRegion;
-    }
-
-    const btnClearTerminal = document.getElementById('btn-clear-terminal');
-    if (btnClearTerminal) {
-        btnClearTerminal.onclick = () => { terminal.innerHTML = ""; };
-    }
+    document.getElementById('btn-new-test').onclick = openModal;
+    document.getElementById('btn-close-modal').onclick = closeModal;
+    document.getElementById('btn-save-region').onclick = saveRegion;
+    document.getElementById('btn-clear-logs').onclick = () => terminal.innerHTML = '';
 }
 
+// Bootstrap
 init();

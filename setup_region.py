@@ -104,12 +104,14 @@ def _get_windows_win() -> list[dict]:
         GetWindowRect(hwnd, ctypes.byref(rect))
         w = rect.right  - rect.left
         h = rect.bottom - rect.top
+        # Only include reasonable sized windows
         if w > 80 and h > 80:
             wins.append({"name": title, "left": rect.left, "top": rect.top,
                          "width": w, "height": h})
         return True
 
-    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+    # Use c_void_p for 64-bit safety
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
     EnumWindows(WNDENUMPROC(_cb), 0)
     return wins
 
