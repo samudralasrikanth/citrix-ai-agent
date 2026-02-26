@@ -1,0 +1,20 @@
+# Citrix AI Vision Agent — dependencies
+# Fully local, no external API, no LLM.
+# Install: pip install -r requirements.txt
+
+# ── Screen capture ────────────────────────────────────────────────────────────
+mss==9.0.1
+
+# ── Computer vision ───────────────────────────────────────────────────────────
+opencv-python==4.9.0.80
+numpy==1.26.4
+
+# ── OCR ──────────────────────────────────────────────────────────────────────
+paddlepaddle==2.6.1
+paddleocr==2.7.3
+
+# ── Fuzzy text matching ───────────────────────────────────────────────────────
+rapidfuzz==3.6.1
+
+# ── Mouse / keyboard automation ───────────────────────────────────────────────
+pyautogui==0.9.54

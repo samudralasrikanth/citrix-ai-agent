@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env
+
+# Logs and runtime outputs
+logs/*.log
+logs/*.txt
+screenshots/*.png
+screenshots/*.jpg
+memory/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# PaddleOCR / model caches
+.paddleocr/
+*.pdparams
+*.pdopt
+
+# Jupyter
+*.ipynb_checkpoints/
