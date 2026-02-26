@@ -1,244 +1,188 @@
 """
-Action executor.
-
-Resolves elements by fuzzy-matching target_text against element labels,
-executes the action via PyAutoGUI, and validates the screen changed.
-Retries up to config.MAX_ACTION_RETRIES times on no-change failures.
+Hardened Action Executor for Production Citrix Automation.
+==========================================================
+Includes:
+- Robust error classification
+- Visual debug logging (bounding boxes)
+- Failure reason categorization
+- PyAutoGUI safety checks
 """
-
 from __future__ import annotations
-
 import time
-from typing import Any
-
-import numpy as np
+import cv2
 import pyautogui
+from typing import Any, Dict, List, Tuple, Callable
 
 import config
-from utils.image_utils import pixel_diff_ratio
+from utils.image_utils import pixel_diff_ratio, draw_elements, save_image
 from utils.logger import get_logger
 from vision.similarity import best_match
 
 log = get_logger(__name__)
 
-pyautogui.FAILSAFE = True   # Move mouse → top-left corner to abort
-pyautogui.PAUSE    = 0.25
-
+# Basic safety
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE = 0.2
 
 class ActionExecutor:
     """
-    Executes Action dicts against the live desktop.
-
-    Supported actions:
-        click    — left-click the centre of the best-matching element.
-        type     — click into a field then typewrite a value.
-        wait_for — wait until target_text appears on screen (up to timeout).
+    Executes automation actions against the live OS with high observability.
     """
+    def __init__(self):
+        self._last_match_score = 0.0
 
     def execute(
         self,
-        action: dict[str, Any],
-        elements: list[dict],
-        capture_fn,                       # callable() → np.ndarray
-    ) -> dict[str, Any]:
+        action: Dict[str, Any],
+        elements: List[Dict],
+        capture_fn: Callable[[], Any]
+    ) -> Dict[str, Any]:
         """
-        Execute one action with retry logic on no-change failures.
-
-        Args:
-            action:     Action dict from Planner.
-            elements:   Current screen elements.
-            capture_fn: Zero-arg callable that returns a fresh BGR frame.
-
-        Returns:
-            Result dict:
-              success      (bool)
-              screen_changed (bool)
-              diff_ratio   (float)
-              attempts     (int)
-              error        (str | None)
-              coordinates  (tuple[int,int] | None)
+        Main entry point for action execution.
         """
-        result: dict[str, Any] = {
-            "action":         action,
-            "success":        False,
-            "screen_changed": False,
-            "diff_ratio":     0.0,
-            "attempts":       0,
-            "error":          None,
-            "coordinates":    None,
+        atype = action.get("action", "").lower()
+        target = action.get("target_text", "")
+        value = action.get("value", "")
+        
+        result = {
+            "success": False,
+            "error": None,
+            "error_code": 0,
+            "target_center": None,
+            "fuzzy_score": 0.0,
+            "screen_changed": False
         }
 
-        atype       = action.get("action", "").lower()
-        target_text = action.get("target_text", "")
-        value       = action.get("value", "")
+        try:
+            # 1. State preservation (for change detection)
+            before_frame = capture_fn()
+            
+            # 2. Logic execution
+            if atype == "click":
+                match_res = self._click(target, elements)
+                result.update(match_res)
+            elif atype == "type":
+                match_res = self._type(target, value, elements)
+                result.update(match_res)
+            elif atype == "wait_for":
+                wait_res = self._wait_for(target, capture_fn)
+                return wait_res
+            elif atype == "screenshot":
+                result["success"] = True
+                return result
+            else:
+                result["error"] = f"Unsupported action: {atype}"
+                return result
 
-        for attempt in range(1, config.MAX_ACTION_RETRIES + 1):
-            result["attempts"] = attempt
-            log.info("Attempt %d/%d | %s '%s'", attempt, config.MAX_ACTION_RETRIES, atype, target_text)
+            # If element wasn't found, we already have success=False in result
+            if not result["success"]:
+                return result
 
-            try:
-                before = capture_fn()
+            # 3. Post-execution validation
+            time.sleep(config.STEP_DELAY_SEC)
+            after_frame = capture_fn()
+            
+            diff = pixel_diff_ratio(before_frame, after_frame)
+            result["screen_changed"] = diff >= config.PIXEL_DIFF_THRESHOLD
+            
+            # In Citrix, sometimes a click doesn't change anything (no-op)
+            # but we still mark it as successful logic-wise if we found the button.
+            # However, for robustness we check for no-change as a warning/failure code.
+            if not result["screen_changed"]:
+                result["error_code"] = config.ERROR_CODES["ERR_NO_CHANGE"]
+                log.warning("Action performed but no screen change detected (diff=%.4f)", diff)
+            
+            # 4. Debugging Save
+            if config.SAVE_DEBUG_FRAMES:
+                self._save_debug_view(before_frame, elements, result.get("matched_idx"), atype)
 
-                if atype == "click":
-                    coords = self._click(target_text, elements)
-                elif atype == "type":
-                    coords = self._type(target_text, value, elements)
-                elif atype == "wait_for":
-                    success = self._wait_for(target_text, capture_fn)
-                    result["success"] = success
-                    result["screen_changed"] = success
-                    return result
-                else:
-                    raise ValueError(f"Unknown action type: {atype!r}")
+            return result
 
-                result["coordinates"] = coords
+        except Exception as e:
+            log.exception("Critical automation failure: %s", e)
+            result["success"] = False
+            result["error"] = str(e)
+            result["error_code"] = 500
+            return result
 
-                # Wait for screen to settle
-                time.sleep(config.STEP_DELAY_SEC)
-                after = capture_fn()
-
-                diff = pixel_diff_ratio(before, after)
-                result["diff_ratio"]     = diff
-                result["screen_changed"] = diff >= config.PIXEL_DIFF_THRESHOLD
-
-                if result["screen_changed"]:
-                    result["success"] = True
-                    log.info("Action succeeded on attempt %d (diff=%.4f).", attempt, diff)
-                    return result
-
-                log.warning(
-                    "No screen change after attempt %d (diff=%.4f) — retrying …",
-                    attempt, diff,
-                )
-
-            except Exception as exc:
-                log.error("Attempt %d failed: %s", attempt, exc)
-                result["error"] = str(exc)
-
-        log.error("All %d attempts exhausted for action '%s'.", config.MAX_ACTION_RETRIES, atype)
-        return result
-
-    # ── Action implementations ────────────────────────────────────────────────
-
-    def _click(self, target_text: str, elements: list[dict]) -> tuple[int, int]:
-        """
-        Find the best-matching element and left-click its centre.
-
-        Args:
-            target_text: Label to look up.
-            elements:    Current element list.
-
-        Returns:
-            (cx, cy) coordinates of the click.
-
-        Raises:
-            RuntimeError: If no matching element is found.
-        """
-        elem = self._find_element(target_text, elements)
+    def _click(self, target: str, elements: List[Dict]) -> Dict:
+        idx, score = self._resolve(target, elements)
+        if idx < 0:
+            return {"success": False, "error": f"Element '{target}' not found", "error_code": config.ERROR_CODES["ERR_MATCH_FAIL"]}
+            
+        elem = elements[idx]
         cx, cy = elem["cx"], elem["cy"]
-        log.info("Clicking '%s' at (%d, %d).", target_text, cx, cy)
-        pyautogui.click(cx, cy)
-        return cx, cy
+        log.info("Clicking '%s' (score=%.1f) at [%d, %d]", target, score, cx, cy)
+        
+        try:
+            pyautogui.click(cx, cy)
+            return {"success": True, "target_center": (cx, cy), "fuzzy_score": score, "matched_idx": idx}
+        except Exception as e:
+            return {"success": False, "error": f"OS Permission Error: {e}", "error_code": config.ERROR_CODES["ERR_PERM"]}
 
-    def _type(
-        self,
-        target_text: str,
-        value: str,
-        elements: list[dict],
-    ) -> tuple[int, int]:
-        """
-        Click a field identified by target_text, then type value.
+    def _type(self, target: str, value: str, elements: List[Dict]) -> Dict:
+        res = self._click(target, elements)
+        if not res["success"]:
+            return res
+            
+        time.sleep(0.3)
+        # Standard Citrix interaction: Clear field before typing
+        pyautogui.hotkey('ctrl', 'a')
+        pyautogui.press('backspace')
+        pyautogui.typewrite(value, interval=0.03)
+        pyautogui.press('enter')
+        return res
 
-        Args:
-            target_text: Field label.
-            value:       Text to type.
-            elements:    Current element list.
-
-        Returns:
-            (cx, cy) of the field click.
-
-        Raises:
-            RuntimeError: If the field is not found.
-        """
-        elem = self._find_element(target_text, elements)
-        cx, cy = elem["cx"], elem["cy"]
-        log.info("Typing '%s' into '%s' at (%d, %d).", value, target_text, cx, cy)
-        pyautogui.click(cx, cy)
-        time.sleep(0.2)
-        pyautogui.hotkey("ctrl", "a")   # Select-all before typing
-        pyautogui.typewrite(value, interval=0.05)
-        return cx, cy
-
-    def _wait_for(
-        self,
-        target_text: str,
-        capture_fn,
-        timeout: float = 10.0,
-        poll: float = 1.0,
-    ) -> bool:
-        """
-        Poll the screen until target_text appears or timeout elapses.
-
-        Args:
-            target_text: Text to wait for.
-            capture_fn:  Zero-arg callable returning a BGR frame.
-            timeout:     Maximum seconds to wait.
-            poll:        Polling interval in seconds.
-
-        Returns:
-            True if text appeared within timeout, False otherwise.
-        """
-        from vision.ocr_engine import OcrEngine  # late import avoids circular dep
-        ocr    = OcrEngine()
-        deadline = time.time() + timeout
-
-        while time.time() < deadline:
-            frame   = capture_fn()
+    def _wait_for(self, target: str, capture_fn: Callable) -> Dict:
+        from vision.ocr_engine import OcrEngine
+        ocr = OcrEngine()
+        
+        start = time.time()
+        timeout = config.STEP_TIMEOUT_SEC
+        
+        while time.time() - start < timeout:
+            frame = capture_fn()
             results = ocr.extract(frame)
-            texts   = [r["text"] for r in results]
-            match   = best_match(target_text, texts, threshold=80.0)
-            if match:
-                log.info("wait_for: '%s' appeared (match='%s').", target_text, match[0])
-                return True
-            log.debug("wait_for: '%s' not yet visible — polling …", target_text)
-            time.sleep(poll)
+            texts = [r["text"] for r in results]
+            match = best_match(target, texts)
+            
+            if match and match[1] >= config.FUZZY_MATCH_THRESHOLD:
+                log.info("Wait success: '%s' appeared on screen.", target)
+                return {"success": True, "screen_changed": True, "fuzzy_score": match[1]}
+            
+            time.sleep(1.0) # Poll every 1s
+            
+        return {
+            "success": False, 
+            "error": f"Timeout waiting for '{target}' after {timeout}s", 
+            "error_code": config.ERROR_CODES["ERR_TIMEOUT"]
+        }
 
-        log.warning("wait_for: '%s' not found within %.1fs.", target_text, timeout)
-        return False
-
-    # ── Element resolution ────────────────────────────────────────────────────
-
-    def _find_element(self, target_text: str, elements: list[dict]) -> dict:
-        """
-        Find the element whose label best fuzzy-matches target_text.
-
-        Args:
-            target_text: Search string.
-            elements:    Element list from ElementDetector.
-
-        Returns:
-            Matching element dict.
-
-        Raises:
-            RuntimeError: If no element matches.
-        """
+    def _resolve(self, target: str, elements: List[Dict]) -> Tuple[int, float]:
+        """Find index of best fuzzy-matching element."""
+        if not elements:
+            return -1, 0.0
+            
         labels = [e.get("label", "") for e in elements]
-        match  = best_match(target_text, labels)
+        match = best_match(target, labels)
+        
+        if not match or match[1] < config.FUZZY_MATCH_THRESHOLD:
+            log.warning("No fuzzy match for '%s'. Best was '%s' (%.1f)", 
+                        target, match[0] if match else "None", match[1] if match else 0)
+            return -1, 0.0
+            
+        best_label, score = match
+        for i, e in enumerate(elements):
+            if e.get("label") == best_label:
+                return i, score
+                
+        return -1, 0.0
 
-        if match is None:
-            raise RuntimeError(
-                f"Element '{target_text}' not found on screen. "
-                f"Visible labels: {labels[:10]}"
-            )
-
-        matched_label, score = match
-        # Return the first element with that label
-        for elem in elements:
-            if elem.get("label", "") == matched_label:
-                log.debug(
-                    "Resolved '%s' → element label='%s' (score=%.1f) at (%d,%d).",
-                    target_text, matched_label, score, elem["cx"], elem["cy"],
-                )
-                return elem
-
-        raise RuntimeError(f"Label resolved but element not found: {matched_label!r}")
+    def _save_debug_view(self, frame: Any, elements: List[Dict], matched_idx: int, action_name: str):
+        """Visual verification - draws boxes and saves to disk."""
+        try:
+            debug_img = draw_elements(frame, elements, highlight_idx=matched_idx)
+            fname = f"debug_{action_name}_{int(time.time())}.png"
+            save_image(debug_img, str(config.SCREENSHOTS_DIR / fname))
+        except:
+            pass

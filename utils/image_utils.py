@@ -91,3 +91,22 @@ def crop_region(image: np.ndarray, box: list[int]) -> np.ndarray:
 def to_grayscale(image: np.ndarray) -> np.ndarray:
     """BGR → grayscale."""
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+def draw_elements(image: np.ndarray, elements: list[dict], highlight_idx: int = -1) -> np.ndarray:
+    """
+    Draw boxes and labels on an image for debugging.
+    """
+    canvas = image.copy()
+    for i, elem in enumerate(elements):
+        box = elem["box"]
+        label = elem.get("label", "")
+        # Highlight color vs normal color
+        color = (0, 220, 80) if i == highlight_idx else (0, 165, 255)
+        thickness = 2 if i == highlight_idx else 1
+        
+        cv2.rectangle(canvas, (box[0], box[1]), (box[2], box[3]), color, thickness)
+        if label:
+            cv2.putText(canvas, label[:20], (box[0], box[1] - 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+            
+    return canvas
