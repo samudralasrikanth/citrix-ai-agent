@@ -1,0 +1,9 @@
+name: Mmlm
+description: Recorded session — 2026-02-26 17:40
+steps:
+- action: click
+  target: element_at_0.31_0.29
+  description: Click icon_button at relative (0.31,0.29)
+  fingerprint:
+    type: icon_button
+    context: ''
