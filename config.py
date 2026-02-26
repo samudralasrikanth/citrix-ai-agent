@@ -34,6 +34,7 @@ OCR_LANG: str             = "en"
 OCR_USE_ANGLE_CLS: bool   = True
 OCR_MIN_CONFIDENCE: float = 0.55
 OCR_PREWARM: bool         = True    # Load model once at startup
+OCR_UPSCALE_FACTOR: float = 3.0     # Scaling for small context recovery
 
 # ── Vision Detection (Contours) ──────────────────────────────────────────────
 EDGE_CANNY_LOW: int       = 50

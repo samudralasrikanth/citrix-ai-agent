@@ -82,8 +82,8 @@ def run_production_test(context: ExecutionContext):
             context.stream_json("error", "Target window not found and no region data exists.", code=config.ERROR_CODES["ERR_MATCH_FAIL"])
             return
 
-    # 2.5 Initialize Executor with current region context
-    context.executor = ActionExecutor(region=context.current_region)
+    # 2.5 Initialize Executor with current region context and test ID for asset scoping
+    context.executor = ActionExecutor(region=context.current_region, context_id=context.test_id)
 
     # 3. Execution Phase
     steps = yaml.safe_load((context.test_path / "playbook.yaml").read_text()).get("steps", [])

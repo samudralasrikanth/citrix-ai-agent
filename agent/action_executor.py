@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import sys
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -49,9 +50,10 @@ class ActionExecutor:
         result   = executor.execute(action, ocr_results, frame, capture_fn)
     """
 
-    def __init__(self, region: Optional[Dict[str, Any]] = None):
+    def __init__(self, region: Optional[Dict[str, Any]] = None, context_id: str = "default"):
         self.region       = region or {}
-        self._engine      = MatchEngine(region)
+        self.context_id   = context_id
+        self._engine      = MatchEngine(region, context_id=context_id)
         self._last_score  = 0.0
 
     def execute(
@@ -220,7 +222,10 @@ class ActionExecutor:
         if not res["success"]:
             return res
         time.sleep(0.3)
-        pyautogui.hotkey("ctrl", "a")
+        
+        # Cross-platform hotkey: command on Mac, ctrl elsewhere
+        modifier = "command" if sys.platform == "darwin" else "ctrl"
+        pyautogui.hotkey(modifier, "a")
         pyautogui.press("backspace")
         pyautogui.typewrite(value, interval=0.03)
         log.info("Typed '%s' into '%s'", value, target)

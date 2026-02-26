@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
-from paddleocr import PaddleOCR
+import config
 
 import config
 
@@ -45,9 +45,11 @@ class OcrEngine:
         log.info("Initialising Vision OCR (lang=%s, prewarm=%s) …",
                  config.OCR_LANG, config.OCR_PREWARM)
         try:
+            from paddleocr import PaddleOCR
             self._ocr = PaddleOCR(
                 lang=config.OCR_LANG,
                 use_angle_cls=config.OCR_USE_ANGLE_CLS,
+                show_log=False
             )
             if config.OCR_PREWARM:
                 self._warm_up()
@@ -77,7 +79,7 @@ class OcrEngine:
     def extract_with_scale(
         self,
         image:     np.ndarray,
-        scale:     float = 2.5,
+        scale:     float = config.OCR_UPSCALE_FACTOR,
         min_conf:  float = 0.35,
     ) -> List[Dict[str, Any]]:
         """
@@ -87,8 +89,8 @@ class OcrEngine:
         h0, w0  = image.shape[:2]
         upscaled = cv2.resize(image, (int(w0 * scale), int(h0 * scale)),
                               interpolation=cv2.INTER_CUBIC)
-        upscaled = self._preprocess(upscaled)
-        results  = self._run(upscaled, min_conf=min_conf)
+        # Use _run directly, which will apply preprocessing once.
+        results = self._run(upscaled, min_conf=min_conf)
 
         # Rescale boxes back to original coordinate space
         for r in results:
@@ -144,9 +146,8 @@ class OcrEngine:
         blurred = cv2.GaussianBlur(image, (0, 0), sigmaX=1.0)
         image   = cv2.addWeighted(image, 1.5, blurred, -0.5, 0)
 
-        # 4. Fast nlMeans denoise (light pass)
-        image = cv2.fastNlMeansDenoisingColored(image, None, h=4, hColor=4,
-                                                templateWindowSize=7, searchWindowSize=11)
+        # 4. Bilateral Filter (much faster than nlMeans, preserves edges)
+        image = cv2.bilateralFilter(image, d=5, sigmaColor=75, sigmaSpace=75)
         return image
 
     @staticmethod

@@ -10,7 +10,7 @@ Workflow:
     2. On OCR failure, ActionExecutor calls find_template(label, frame)
     3. Returns (cx, cy) of best match centre, or None
 
-Template storage: memory/templates/<normalized_label>.png
+Template storage: memory/templates/<context_id>/<normalized_label>.png
 """
 from __future__ import annotations
 
@@ -40,43 +40,40 @@ class TemplateMatcher:
     Instantiate once and reuse; it holds no mutable state.
     """
 
-    def save_template(self, label: str, crop: np.ndarray) -> None:
+    def save_template(self, label: str, crop: np.ndarray, context_id: str = "default") -> None:
         """
         Persist a cropped button image for future visual matching.
 
         Args:
-            label: Human-readable button label (will be normalised for filename).
-            crop:  BGR image array of the button region.
+            label:      Human-readable button label.
+            crop:       BGR image array.
+            context_id: Folder name (e.g. test_id or app_name).
         """
         key  = normalize(label) or "unknown"
-        path = _TEMPLATE_DIR / f"{key}.png"
+        ctx_dir = _TEMPLATE_DIR / context_id
+        ctx_dir.mkdir(parents=True, exist_ok=True)
+        
+        path = ctx_dir / f"{key}.png"
         ok   = cv2.imwrite(str(path), crop)
         if ok:
-            log.debug("Template saved: %s → %s", label, path.name)
+            log.debug("Template saved: [%s] %s → %s", context_id, label, path.name)
         else:
-            log.warning("Failed to save template for '%s'", label)
+            log.warning("Failed to save template for '%s' in context '%s'", label, context_id)
 
     def find(
         self,
-        label: str,
-        frame: np.ndarray,
-        region: Optional[dict] = None,
+        label:      str,
+        frame:      np.ndarray,
+        region:     Optional[dict] = None,
+        context_id: str = "default",
     ) -> Optional[Tuple[int, int]]:
         """
         Search *frame* for a stored template image of *label*.
-
-        Args:
-            label:  The target label whose template to load.
-            frame:  Full BGR screenshot (already cropped to automation region).
-            region: Optional region dict (left, top, …) for coordinate offset.
-
-        Returns:
-            (cx, cy) in *screen* coordinates if match found, else None.
         """
         key  = normalize(label) or "unknown"
-        path = _TEMPLATE_DIR / f"{key}.png"
+        path = _TEMPLATE_DIR / context_id / f"{key}.png"
         if not path.exists():
-            log.debug("No template found for '%s'", label)
+            log.debug("No template found for '%s' in context '%s'", label, context_id)
             return None
 
         tmpl = cv2.imread(str(path))

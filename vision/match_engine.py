@@ -76,8 +76,9 @@ class MatchEngine:
     Build once per ActionExecutor; safe to reuse across steps.
     """
 
-    def __init__(self, region: Optional[Dict[str, Any]] = None):
+    def __init__(self, region: Optional[Dict[str, Any]] = None, context_id: str = "default"):
         self.region        = region or {}
+        self.context_id    = context_id
         self._memory       = ClickMemory(region)
         self._template     = TemplateMatcher()
 
@@ -110,7 +111,7 @@ class MatchEngine:
 
         # ── ① Memory cache (fastest path) ───────────────────────────────────
         result.tried_memory = True
-        cached = self._memory.get(target)
+        cached = self._memory.get(target, self.region)
         if cached:
             cx, cy = cached
             if self._within_region(cx, cy, absolute=True):
@@ -120,7 +121,7 @@ class MatchEngine:
                 return result
             else:
                 log.debug("Memory hit for '%s' rejected — outside region.", target)
-                self._memory.invalidate(target)
+                self._memory.invalidate(target, self.region)
 
         # ── ② Normalize OCR → build candidate list ──────────────────────────
         enriched, norm_target = normalized_pairs(ocr_results, target)
@@ -165,14 +166,14 @@ class MatchEngine:
 
         # ── ④ Template matching fallback ─────────────────────────────────────
         result.tried_template = True
-        coord = self._template.find(target, frame, self.region)
+        coord = self._template.find(target, frame, self.region, context_id=self.context_id)
         if coord:
             result.found         = True
             result.cx, result.cy = coord
             result.method        = "template"
             result.score         = 0.0
             result.label         = target
-            log.info("Template match: '%s' → screen (%d, %d)", target, *coord)
+            log.info("Template match: [%s] '%s' → screen (%d, %d)", self.context_id, target, *coord)
             return result
 
         # ── ⑤ Expanded region search ─────────────────────────────────────────
@@ -193,17 +194,17 @@ class MatchEngine:
 
     def record_success(self, target: str, cx: int, cy: int) -> None:
         """Called by ActionExecutor when click produces a screen change."""
-        self._memory.save(target, cx, cy)
+        self._memory.save(target, cx, cy, self.region)
         # Also try to capture a template so future runs have visual fallback
         # (requires a frame reference — done in ActionExecutor)
 
     def record_failure(self, target: str) -> None:
         """Called by ActionExecutor when click produces NO screen change."""
-        self._memory.invalidate(target)
+        self._memory.invalidate(target, self.region)
 
     def save_template(self, label: str, crop: np.ndarray) -> None:
         """Save a reference crop for template matching."""
-        self._template.save_template(label, crop)
+        self._template.save_template(label, crop, context_id=self.context_id)
 
     # ── Private helpers ─────────────────────────────────────────────────────────
 
