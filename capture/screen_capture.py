@@ -1,76 +1,90 @@
-"""
-Screen capture module using MSS.
-Returns NumPy BGR arrays; optionally persists timestamped screenshots.
-"""
-
 from __future__ import annotations
-
-import time
+import os
+import cv2
+import mss
+import mss.tools
+import numpy as np
+from datetime import datetime
 from pathlib import Path
 
-import mss
-import numpy as np
-
-import config
-from utils.image_utils import save_image
-from utils.logger import get_logger
-
-log = get_logger(__name__)
-
-
 class ScreenCapture:
-    """Wraps MSS for full-screen or region capture, returning BGR NumPy arrays."""
-
-    def __init__(self) -> None:
-        self._sct = mss.mss()
-
-    # ── Public API ────────────────────────────────────────────────────────────
+    def __init__(self):
+        self.sct = mss.mss()
 
     def capture(self, region: dict | None = None) -> np.ndarray:
+        """Capture a region or full screen."""
+        # Note: on macOS Retina, mss returns pixels at 2x scale 
+        # but the region coords are in logical points.
+        monitor = self.sct.monitors[0] if not region else region
+        
+        screenshot = self.sct.grab(monitor)
+        img = np.array(screenshot)
+        return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+    def locate_window(self, reference_path: str | Path) -> dict | None:
         """
-        Capture the screen or a sub-region.
-
-        Args:
-            region: Optional dict {top, left, width, height}.
-                    Falls back to config.CAPTURE_REGION → full monitor.
-
-        Returns:
-            BGR NumPy array.
+        Robustly find where the window is currently located on the screen.
+        Handles scaling differences (Retina vs Standard) by trying multiple scales.
         """
-        target = region or config.CAPTURE_REGION
-        monitor = (
-            self._sct.monitors[config.CAPTURE_MONITOR_INDEX]
-            if target is None
-            else target
-        )
-        raw   = self._sct.grab(monitor)
-        frame = np.array(raw)[:, :, :3]   # BGRA → BGR
-        log.debug("Captured %dx%d frame.", frame.shape[1], frame.shape[0])
-        return frame
+        if not os.path.exists(reference_path):
+            return None
 
-    def capture_and_save(self, region: dict | None = None) -> tuple[np.ndarray, str]:
-        """
-        Capture and persist with a timestamp filename.
+        # 1. Take a full screenshot
+        full_screen = self.capture()
+        template = cv2.imread(str(reference_path))
+        
+        if template is None or full_screen is None:
+            return None
 
-        Args:
-            region: Optional capture region.
+        # Convert both to grayscale for faster/easier matching
+        full_gray = cv2.cvtColor(full_screen, cv2.COLOR_BGR2GRAY)
+        temp_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 
-        Returns:
-            (BGR array, absolute path to saved PNG).
-        """
-        frame = self.capture(region)
-        ts    = time.strftime("%Y%m%d_%H%M%S")
-        path  = config.SCREENSHOTS_DIR / f"screenshot_{ts}.png"
-        save_image(frame, str(path))
-        log.info("Screenshot → %s", path)
-        return frame, str(path)
+        best_match = None
+        best_score = 0.75 # Minimum confidence threshold
 
-    def close(self) -> None:
-        """Release the MSS context."""
-        self._sct.close()
+        # 2. Try matching at multiple scales (especially 0.5 for Retina downscaling)
+        # MacOS Retina: full_screen might be 2x what was intended by 'logical' region coords
+        scales = [1.0, 0.5, 0.75, 1.25, 1.5, 2.0]
+        
+        for scale in scales:
+            sw = int(temp_gray.shape[1] * scale)
+            sh = int(temp_gray.shape[0] * scale)
+            
+            # Skip if template is bigger than screen
+            if sw > full_gray.shape[1] or sh > full_gray.shape[0] or sw < 10 or sh < 10:
+                continue
+                
+            resized = cv2.resize(temp_gray, (sw, sh), interpolation=cv2.INTER_AREA)
+            
+            res = cv2.matchTemplate(full_gray, resized, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(res)
 
-    def __enter__(self) -> "ScreenCapture":
-        return self
+            if max_val > best_score:
+                best_score = max_val
+                best_match = {
+                    "left": max_loc[0],
+                    "top": max_loc[1],
+                    "width": sw,
+                    "height": sh,
+                    "score": max_val
+                }
+                # If we have a very high confidence, stop early
+                if max_val > 0.95:
+                    break
 
-    def __exit__(self, *_) -> None:
-        self.close()
+        return best_match
+
+    def capture_and_save(self, region: dict | None = None, folder: str | Path = "screenshots") -> tuple[np.ndarray, str]:
+        """Captures and saves a timestamped image."""
+        img = self.capture(region)
+        
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = os.path.join(folder, f"capture_{timestamp}.png")
+        
+        cv2.imwrite(path, img)
+        return img, path
+
+    def close(self):
+        self.sct.close()

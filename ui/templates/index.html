@@ -29,22 +29,12 @@
         </div>
 
         <div class="nav-section">
-            <div class="nav-title">Playbooks</div>
+            <div class="nav-title">Test Cases</div>
             <ul class="nav-list" id="playbook-list">
                 <!-- Loaded via JS -->
             </ul>
-            <div class="nav-item" id="btn-new-playbook" style="margin-top: 10px; color: var(--accent);">
-                <span>+ New Playbook</span>
-            </div>
-        </div>
-
-        <div class="nav-section">
-            <div class="nav-title">Regions</div>
-            <ul class="nav-list" id="region-list">
-                <!-- Loaded via JS -->
-            </ul>
-            <div class="nav-item" id="btn-setup-region" style="margin-top: 10px; color: var(--accent);">
-                <span>+ Setup New Region</span>
+            <div class="nav-item" id="btn-new-test" style="margin-top: 10px; color: var(--accent);">
+                <span>+ Create New Test Case</span>
             </div>
         </div>
     </div>
@@ -67,9 +57,13 @@
                     placeholder="# Select a playbook to edit..."></textarea>
             </div>
             <div class="output-area">
-                <div class="output-header">
-                    <span>EXECUTION LOG</span>
-                    <span class="status-pill idle" id="agent-status">IDLE</span>
+                <div class="output-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span>EXECUTION LOG</span>
+                        <span class="status-pill idle" id="agent-status">IDLE</span>
+                    </div>
+                    <button class="secondary" id="btn-clear-terminal"
+                        style="font-size: 10px; padding: 2px 8px; height: auto;">Clear</button>
                 </div>
                 <div id="terminal-output">
                     Welcome to Citrix AI Vision Agent.
@@ -79,20 +73,20 @@
         </div>
     </div>
 
-    <!-- Setup Region Modal -->
+    <!-- Create Test Case Modal -->
     <div id="modal-setup" class="modal">
         <div class="modal-content">
-            <h2>Setup New Region</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 20px;">Select an application window to capture as a
-                named region.</p>
+            <h2>Create New Test Case</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">Provide a name and select the application
+                window to automate.</p>
 
             <div class="form-group">
-                <label>Region Name</label>
-                <input type="text" id="new-region-name" placeholder="eg: login_screen"
+                <label>Test Case Name</label>
+                <input type="text" id="new-region-name" placeholder="eg: citrix_login_flow"
                     style="width: 100%; padding: 8px; background: var(--bg-main); border: 1px solid var(--border); color: white; border-radius: 4px; margin-bottom: 15px;">
             </div>
 
-            <div class="nav-title">Visible Windows</div>
+            <div class="nav-title">Select Target Window</div>
             <ul class="nav-list" id="modal-window-list"
                 style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px;">
                 <!-- Windows loaded via JS -->
@@ -100,7 +94,7 @@
 
             <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button class="secondary" onclick="closeModal()">Cancel</button>
-                <button class="primary" id="btn-save-region">Save Region</button>
+                <button class="primary" id="btn-save-region">Create Test Case</button>
             </div>
         </div>
     </div>

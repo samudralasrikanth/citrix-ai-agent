@@ -1,10 +1,10 @@
-"""
-Global configuration for the Citrix AI Vision Agent.
-All tunable parameters, paths, and thresholds live here.
-"""
-
+import os
 from pathlib import Path
-from typing import Dict, List, Optional
+
+# ── Environment Tweaks (Speed & Noise reduction) ──────────────────────────────
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+# Suppress urllib3 and other common warnings
+os.environ["PYTHONWARNINGS"] = "ignore"
 
 # ── Project Root ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
