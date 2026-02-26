@@ -4,6 +4,7 @@ All tunable parameters, paths, and thresholds live here.
 """
 
 from pathlib import Path
+from typing import Dict, List, Optional
 
 # ── Project Root ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
@@ -17,13 +18,13 @@ for _d in (LOGS_DIR, SCREENSHOTS_DIR, MEMORY_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── Screen Capture ────────────────────────────────────────────────────────────
-CAPTURE_MONITOR_INDEX: int       = 1       # 1 = primary monitor (mss convention)
-CAPTURE_REGION: dict | None      = None    # None = full screen
-                                           # e.g. {"top":0,"left":0,"width":1920,"height":1080}
+CAPTURE_MONITOR_INDEX: int               = 1       # 1 = primary monitor (mss convention)
+CAPTURE_REGION: Optional[Dict]           = None    # None = full screen
+                                                   # e.g. {"top":0,"left":0,"width":1920,"height":1080}
 
 # ── OCR ───────────────────────────────────────────────────────────────────────
-OCR_LANG: str            = "en"
-OCR_USE_ANGLE_CLS: bool  = True
+OCR_LANG: str             = "en"
+OCR_USE_ANGLE_CLS: bool   = True
 OCR_MIN_CONFIDENCE: float = 0.55           # Drop results below this threshold
 
 # ── Vision / Element Detection ────────────────────────────────────────────────
@@ -35,6 +36,7 @@ MIN_CONTOUR_AREA: int    = 400             # px² — minimum area to keep a reg
 FUZZY_MATCH_THRESHOLD: float = 85.0       # Score in [0,100]; above = match
 
 # ── Action Execution ──────────────────────────────────────────────────────────
+
 STEP_DELAY_SEC: float         = 1.2       # Pause after every action
 PIXEL_DIFF_THRESHOLD: float   = 0.01      # > 1 % pixels changed = screen changed
 MAX_ACTION_RETRIES: int        = 3        # Retry an action this many times
@@ -43,7 +45,7 @@ MAX_ACTION_RETRIES: int        = 3        # Retry an action this many times
 REWARD_SUCCESS: int   =  10
 REWARD_NO_CHANGE: int =  -5
 REWARD_ERROR: int     = -10
-ERROR_KEYWORDS: list[str] = ["error", "failed", "invalid", "exception", "not found"]
+ERROR_KEYWORDS: List[str] = ["error", "failed", "invalid", "exception", "not found"]
 
 # ── Memory ────────────────────────────────────────────────────────────────────
 MEMORY_FILE: Path = MEMORY_DIR / "action_memory.json"

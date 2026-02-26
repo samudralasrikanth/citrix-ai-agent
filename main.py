@@ -2,20 +2,22 @@
 Citrix AI Vision Agent — main entry point.
 
 Fully offline, no LLM, no external APIs.
-Demonstrates the complete sense → plan → act → reward → remember loop.
+Run  ./run.sh setup  first to select your Citrix window area.
 
-Usage (Windows PowerShell, inside citrix_ai_agent/):
-    python main.py
-    python main.py --goal "click Submit" --steps 5
-    python main.py --goal "type 123 in Policy Number" --steps 3
-    python main.py --goal "Submit the form" --steps 10   # free-text fuzzy mode
+Usage:
+    ./run.sh setup                                  ← FIRST: select region
+    ./run.sh --goal "click Login"
+    ./run.sh --goal "type admin in Username" --steps 5
+    ./run.sh --goal "click Submit" --steps 10
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
+from pathlib import Path
 
 import config
 from capture.screen_capture import ScreenCapture
@@ -30,28 +32,43 @@ from utils.logger import get_logger
 
 log = get_logger(__name__)
 
-DIVIDER = "═" * 64
+DIVIDER      = "═" * 64
+REGION_FILE  = Path(__file__).parent / "memory" / "region.json"
+
+
+def _load_region() -> dict | None:
+    """Load saved capture region from setup. Returns None if not set up yet."""
+    if not REGION_FILE.exists():
+        return None
+    try:
+        return json.loads(REGION_FILE.read_text())
+    except Exception:
+        return None
 
 
 def run_agent(goal: str, max_steps: int = 5) -> None:
     """
     Execute the agent loop for a given goal.
 
-    Loop per step:
-        1. Capture screen + OCR + element detection → screen state.
-        2. Planner (fuzzy heuristic) emits action list.
-        3. Executor runs each action with retry + pixel-diff validation.
-        4. Re-capture → new screen state.
-        5. Reward engine scores the transition.
-        6. Memory manager persists outcome + coordinates.
-        7. Repeat until max_steps exhausted.
-
     Args:
         goal:      Natural-language goal string.
         max_steps: Maximum agent steps to run.
     """
+    # ── Load saved capture region ─────────────────────────────────────────────
+    region = _load_region()
+    if region is None:
+        print("\n" + "─" * 60)
+        print("  ⚠️  No capture region configured!")
+        print()
+        print("  Run setup first to select your Citrix window area:")
+        print("      ./run.sh setup")
+        print("─" * 60 + "\n")
+        sys.exit(1)
+
     log.info(DIVIDER)
     log.info("Agent starting  goal='%s'  max_steps=%d", goal, max_steps)
+    log.info("Capture region  top=%d  left=%d  width=%d  height=%d",
+             region["top"], region["left"], region["width"], region["height"])
     log.info(DIVIDER)
 
     capturer  = ScreenCapture()
@@ -67,8 +84,8 @@ def run_agent(goal: str, max_steps: int = 5) -> None:
     for step in range(1, max_steps + 1):
         log.info("─── Step %d / %d ─────────────────────────────────────", step, max_steps)
 
-        # ── 1. Capture + perception ──────────────────────────────────────────
-        frame, ss_path = capturer.capture_and_save()
+        # ── 1. Capture only the saved region ─────────────────────────────────
+        frame, ss_path = capturer.capture_and_save(region=region)
         ocr_results    = ocr.extract(frame)
         elements       = detector.detect_contours(frame)
         elements       = detector.merge_with_ocr(elements, ocr_results)
@@ -97,8 +114,8 @@ def run_agent(goal: str, max_steps: int = 5) -> None:
                 capture_fn=capturer.capture,
             )
 
-            # Re-capture for new state
-            new_frame, _   = capturer.capture_and_save()
+            # Re-capture the same region for new state
+            new_frame, _   = capturer.capture_and_save(region=region)
             new_ocr        = ocr.extract(new_frame)
             new_elements   = detector.detect_contours(new_frame)
             new_elements   = detector.merge_with_ocr(new_elements, new_ocr)
