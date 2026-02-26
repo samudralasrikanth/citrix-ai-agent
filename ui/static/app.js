@@ -310,54 +310,126 @@ function closeModal() {
     $('modal-setup').classList.remove('active');
 }
 
-// ── Record Modal ───────────────────────────────────────────────────────────────
+// ── Record Modal — three states: idle → active → done ─────────────────────────
+let _recordTestId = null;
+let _recordPollTimer = null;
+let _recordStepCount = 0;
+
 function openRecordModal() {
-    $('modal-record').classList.add('active');
+    _recordTestId = null;
+    _recordStepCount = 0;
     $('record-test-name').value = '';
-    $('record-info-box').style.display = 'none';
-    $('btn-start-record').disabled = false;
-    $('btn-start-record').innerHTML = '<span class="rec-dot" style="width:8px;height:8px"></span> Start Recording';
+    _setRecordState('idle');
+    $('modal-record').classList.add('active');
+    setTimeout(() => $('record-test-name').focus(), 80);
 }
 
 function closeRecordModal() {
     $('modal-record').classList.remove('active');
+    _stopRecordPoll();
+}
+
+function _setRecordState(s) {
+    $('record-actions-idle').style.display = s === 'idle' ? 'flex' : 'none';
+    $('record-actions-active').style.display = s === 'active' ? 'flex' : 'none';
+    $('record-actions-done').style.display = s === 'done' ? 'flex' : 'none';
+    $('record-info-box').style.display = s === 'active' ? 'flex' : 'none';
+    $('record-done-box').style.display = s === 'done' ? 'flex' : 'none';
+    if (s === 'idle') {
+        $('btn-start-record').disabled = false;
+        $('btn-start-record').innerHTML = '<span class="rec-dot" style="width:8px;height:8px"></span> Start Recording';
+    }
 }
 
 async function startRecording() {
-    const name = $('record-test-name').value.trim().toLowerCase().replace(/\s+/g, '_');
+    const raw = $('record-test-name').value.trim();
+    const name = raw.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     if (!name) { $('record-test-name').focus(); return; }
 
+    _recordTestId = name;
+    _recordStepCount = 0;
     $('btn-start-record').disabled = true;
-    $('btn-start-record').textContent = 'Launching…';
+    $('btn-start-record').textContent = 'Starting…';
 
     try {
         const res = await fetch(`/api/record/${name}/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
         });
         const data = await res.json();
-
         if (data.success) {
-            $('record-info-box').style.display = 'flex';
-            $('record-status-msg').textContent = data.message ||
-                'Terminal is open. Hover over Citrix elements and press ENTER to capture them. Type "q" when done.';
-            $('btn-start-record').textContent = 'Recording…';
-
-            // Refresh the sidebar list after a short delay
-            setTimeout(async () => {
-                await fetchPlaybooks();
-                if (name) { state.expandedTests.add(name); renderPlaybookList(); }
-            }, 4000);
+            $('record-step-count').textContent = '0 steps recorded';
+            _setRecordState('active');
+            _startRecordPoll(name);
         } else {
-            logEntry('error', 'Failed to launch recorder.');
-            closeRecordModal();
+            _setRecordState('idle');
+            logEntry('error', `Recorder start failed: ${data.message || 'unknown error'}`);
         }
     } catch (e) {
-        logEntry('error', `Recorder launch error: ${e.message}`);
-        closeRecordModal();
+        _setRecordState('idle');
+        logEntry('error', `Recorder launch failed: ${e.message}`);
     }
 }
+
+async function captureRecordStep() {
+    if (!_recordTestId) return;
+    const btn = $('btn-capture-step');
+    btn.disabled = true;
+    btn.textContent = 'Capturing…';
+    try {
+        const res = await fetch(`/api/record/${_recordTestId}/capture`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            _recordStepCount++;
+            $('record-step-count').textContent =
+                `${_recordStepCount} step${_recordStepCount !== 1 ? 's' : ''} recorded`;
+        }
+    } catch (_) { }
+    setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" fill="currentColor"></circle><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"></path></svg> Capture Step`;
+    }, 900);
+}
+
+async function stopRecording() {
+    if (!_recordTestId) return;
+    _stopRecordPoll();
+    const btn = $('btn-stop-record');
+    btn.disabled = true;
+    btn.textContent = 'Stopping…';
+    try {
+        await fetch(`/api/record/${_recordTestId}/stop`, { method: 'POST' });
+    } catch (_) { }
+    _onRecordingFinished();
+}
+
+function _onRecordingFinished() {
+    _stopRecordPoll();
+    const n = _recordTestId || 'test';
+    $('record-done-msg').textContent =
+        `Saved to tests/${n}/playbook.yaml — ${_recordStepCount} step${_recordStepCount !== 1 ? 's' : ''} recorded. You can run it from the sidebar.`;
+    _setRecordState('done');
+    fetchPlaybooks().then(() => {
+        if (_recordTestId) { state.expandedTests.add(_recordTestId); renderPlaybookList(); }
+    });
+}
+
+function _startRecordPoll(testId) {
+    _stopRecordPoll();
+    _recordPollTimer = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/record/${testId}/status`);
+            const data = await res.json();
+            if (!data.running && $('modal-record').classList.contains('active')) {
+                _onRecordingFinished();
+            }
+        } catch (_) { }
+    }, 3000);
+}
+
+function _stopRecordPoll() {
+    if (_recordPollTimer) { clearInterval(_recordPollTimer); _recordPollTimer = null; }
+}
+
 
 async function fetchWindows() {
     const list = $('modal-window-list');
@@ -420,6 +492,9 @@ function setupEventListeners() {
     $('btn-start-record').addEventListener('click', startRecording);
     $('btn-cancel-record').addEventListener('click', closeRecordModal);
     $('btn-close-record').addEventListener('click', closeRecordModal);
+    $('btn-stop-record').addEventListener('click', stopRecording);
+    $('btn-capture-step').addEventListener('click', captureRecordStep);
+    $('btn-record-done').addEventListener('click', closeRecordModal);
     $('btn-save-region').addEventListener('click', saveRegion);
     $('btn-clear-terminal').addEventListener('click', () => {
         terminal.innerHTML = '';
@@ -437,6 +512,7 @@ function setupEventListeners() {
     $('modal-setup').addEventListener('click', e => { if (e.target === $('modal-setup')) closeModal(); });
     $('modal-record').addEventListener('click', e => { if (e.target === $('modal-record')) closeRecordModal(); });
 }
+
 
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────

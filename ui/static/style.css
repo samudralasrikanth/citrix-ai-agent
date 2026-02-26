@@ -341,6 +341,20 @@ body {
     animation: recPulse 1.2s ease-in-out infinite;
 }
 
+/* Recording done / success state */
+.record-done-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 16px 24px 0;
+    padding: 14px;
+    background: rgba(0, 224, 90, 0.08);
+    border: 1px solid rgba(0, 224, 90, 0.2);
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 /* ── Main Content ───────────────────────────────────────────────────────── */
 .main-content {
     flex: 1;

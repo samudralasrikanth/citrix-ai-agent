@@ -291,29 +291,114 @@ def _safe(name: str) -> str:
 @app.route("/api/record/<test_id>/start", methods=["POST"])
 def start_recording(test_id):
     """
-    Launch the recorder as a background subprocess.
-    The recorder runs interactively in the user's terminal — this endpoint
-    just kicks it off and returns immediately.
+    Launch the semantic recorder as a tracked subprocess.
+    Streams stdout back as SSE so the UI can show live step captures.
+    Also saves the PID in _active_processes so /stop can terminate it.
     """
     test_id  = _safe(test_id)
-    region   = request.json.get("region_name", "") if request.json else ""
+    reg_key  = f"recorder_{test_id}"
+
+    # Kill any existing recorder for this suite
+    with _registry_lock:
+        existing = _active_processes.get(reg_key)
+    if existing and existing.poll() is None:
+        existing.terminate()
+
     recorder = ROOT / "agent" / "recorder.py"
-    cmd      = [sys.executable, str(recorder), test_id]
-    if region:
-        cmd.append(region)
+    env      = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
 
-    # Open a new terminal window with the recorder running inside it
-    import platform
-    if platform.system() == "Darwin":
-        apple_script = (
-            f'tell application "Terminal" to do script '
-            f'"cd {ROOT} && source venv/bin/activate && python agent/recorder.py {test_id}"'
-        )
-        subprocess.Popen(["osascript", "-e", apple_script])
-    else:
-        subprocess.Popen(cmd, cwd=str(ROOT))
+    # Launch the recorder piping its stdout so we can forward to SSE
+    proc = subprocess.Popen(
+        [sys.executable, "-u", str(recorder), test_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.PIPE,
+        cwd=str(ROOT),
+        env=env,
+        text=True,
+        bufsize=1,
+    )
 
-    return jsonify({"success": True, "message": f"Recorder launched for '{test_id}'. Check the Terminal window."})
+    with _registry_lock:
+        _active_processes[reg_key] = proc
+
+    return jsonify({
+        "success": True,
+        "pid":     proc.pid,
+        "message": (
+            f"Recorder started (PID {proc.pid}) for '{test_id}'. "
+            "Hover over Citrix elements and press ENTER in the terminal. "
+            "Click Stop Recording when done."
+        ),
+    })
+
+
+@app.route("/api/record/<test_id>/capture", methods=["POST"])
+def recorder_capture(test_id):
+    """
+    Send an ENTER keystroke to the recorder's stdin — triggers a single
+    element capture at the current mouse position. Called by UI 'Capture' button.
+    """
+    reg_key = f"recorder_{_safe(test_id)}"
+    with _registry_lock:
+        proc = _active_processes.get(reg_key)
+
+    if not proc or proc.poll() is not None:
+        return jsonify({"success": False, "reason": "Recorder not running."}), 400
+
+    try:
+        proc.stdin.write("\n")
+        proc.stdin.flush()
+        return jsonify({"success": True})
+    except Exception as exc:
+        return jsonify({"success": False, "reason": str(exc)}), 500
+
+
+@app.route("/api/record/<test_id>/stop", methods=["POST"])
+def stop_recording(test_id):
+    """
+    Gracefully terminate the recorder — sends 'q\\n' to stdin (clean exit),
+    waits 2 s, then SIGTERM, then SIGKILL as final fallback.
+    """
+    reg_key = f"recorder_{_safe(test_id)}"
+    with _registry_lock:
+        proc = _active_processes.get(reg_key)
+
+    if not proc or proc.poll() is not None:
+        return jsonify({"stopped": False, "reason": "No active recorder."})
+
+    try:
+        # 1. Polite exit via stdin
+        proc.stdin.write("q\n")
+        proc.stdin.flush()
+    except Exception:
+        pass
+
+    # 2. Wait up to 3 s for clean exit
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    with _registry_lock:
+        _active_processes.pop(reg_key, None)
+
+    return jsonify({"stopped": True, "message": f"Recorder for '{test_id}' stopped."})
+
+
+@app.route("/api/record/<test_id>/status")
+def recorder_status(test_id):
+    """Poll whether the recorder is still running — used by the UI for auto-refresh."""
+    reg_key = f"recorder_{_safe(test_id)}"
+    with _registry_lock:
+        proc = _active_processes.get(reg_key)
+    running = bool(proc and proc.poll() is None)
+    return jsonify({"running": running, "test_id": test_id})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -323,4 +408,3 @@ def start_recording(test_id):
 if __name__ == "__main__":
     # use_reloader=False: prevents double-init of heavy OCR models
     app.run(host="127.0.0.1", port=5001, debug=True, use_reloader=False)
-
