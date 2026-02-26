@@ -205,7 +205,7 @@ def cmd_ui() -> int:
 # ── Help ──────────────────────────────────────────────────────────────────────
 
 def _usage() -> None:
-    launcher = "run" if IS_WINDOWS else "python run.py"
+    launcher = "run.bat" if IS_WINDOWS else "./run.sh"
     print(f"""
   Citrix AI Vision Agent
   {"─" * 55}

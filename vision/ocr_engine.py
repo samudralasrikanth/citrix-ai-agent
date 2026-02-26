@@ -33,9 +33,7 @@ class OcrEngine:
         try:
             self._ocr = PaddleOCR(
                 lang=config.OCR_LANG,
-                use_angle_cls=config.OCR_USE_ANGLE_CLS,
-                show_log=False,
-                ocr_version="PP-OCRv4" # Ensure latest stable mobile model
+                use_angle_cls=config.OCR_USE_ANGLE_CLS
             )
             
             if config.OCR_PREWARM:
@@ -50,7 +48,7 @@ class OcrEngine:
     def _warm_up(self):
         """Warm up the model with a blank image to avoid lag on first execution."""
         blank = np.zeros((100, 100, 3), dtype=np.uint8)
-        self._ocr.ocr(blank, cls=True)
+        self._ocr.ocr(blank)
         log.debug("OCR Engine pre-warmed.")
 
     def extract(self, image: np.ndarray) -> List[Dict[str, Any]]:
@@ -62,7 +60,7 @@ class OcrEngine:
             image = self._preprocess(image)
             
             # PaddleOCR v2.x returns list containing results
-            raw = self._ocr.ocr(image, cls=config.OCR_USE_ANGLE_CLS)
+            raw = self._ocr.ocr(image)
             
             results = []
             if not raw or not raw[0]:

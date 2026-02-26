@@ -68,10 +68,16 @@ class ActionExecutor:
                 wait_res = self._wait_for(target, capture_fn)
                 return wait_res
             elif atype == "screenshot":
+                img = capture_fn()
+                fname = f"manual_{int(time.time())}.png"
+                save_image(img, str(config.SCREENSHOTS_DIR / fname))
+                result["message"] = f"Saved: {fname}"
                 result["success"] = True
                 return result
-            else:
-                result["error"] = f"Unsupported action: {atype}"
+            elif atype == "pause":
+                seconds = float(action.get("value") or 1.0)
+                time.sleep(seconds)
+                result["success"] = True
                 return result
 
             # If element wasn't found, we already have success=False in result

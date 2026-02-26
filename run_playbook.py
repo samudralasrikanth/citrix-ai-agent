@@ -124,22 +124,35 @@ def _execute_hardened_step(step_idx: int, step: Dict[str, Any], context: Executi
     if context.dry_run:
         return True
 
+    # 1. Optimised path for meta-actions (no vision required)
+    if action in ["pause", "screenshot"]:
+        res = context.executor.execute(
+            action={"action": action, "target_text": target, "value": step.get("value", "")},
+            elements=[],
+            capture_fn=lambda: context.capturer.capture(region=context.current_region)
+        )
+        context.audit_log.log_step({**metadata, "res": res})
+        if res["success"]:
+            context.stream_json("step_success", f"OK: {action}", step=step_idx)
+            return True
+        return False
+
     # Retry mechanism with backoff
     for attempt in range(1, config.MAX_ACTION_RETRIES + 1):
         try:
-            # 1. Capture and Vision
+            # 2. Capture and Vision
             frame = context.capturer.capture(region=context.current_region)
             ocr_results = context.ocr.extract(frame)
             elements = context.detector.detect_contours(frame)
             elements = context.detector.merge_with_ocr(elements, ocr_results)
             
-            # 2. Offset mapping (absolute coordinates)
+            # 3. Offset mapping (absolute coordinates)
             ox, oy = context.current_region.get("left", 0), context.current_region.get("top", 0)
             for e in elements:
                 e["cx"] += ox
                 e["cy"] += oy
             
-            # 3. Execute
+            # 4. Execute
             res = context.executor.execute(
                 action={"action": action, "target_text": target, "value": step.get("value", "")},
                 elements=elements,

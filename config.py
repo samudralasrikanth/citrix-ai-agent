@@ -46,6 +46,11 @@ PIXEL_DIFF_THRESHOLD: float = 0.005 # Sensitivity for screen change detection
 SAVE_DEBUG_FRAMES: bool     = True
 LOG_FORMAT: str             = "json"  # Options: json, text
 LOG_LEVEL: str              = "DEBUG"
+LOG_FILE: Path              = LOGS_DIR / "agent.log"
+
+# ── Action Timing & Matching ─────────────────────────────────────────────────
+STEP_DELAY_SEC: float       = 0.5   # Delay between action and verification
+FUZZY_MATCH_THRESHOLD: float = 75.0 # Min score for element recognition
 
 # ── Error Codes ───────────────────────────────────────────────────────────────
 ERROR_CODES = {

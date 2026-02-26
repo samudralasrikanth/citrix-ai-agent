@@ -1,0 +1,4 @@
+name: Web
+description: New scenario for Google Chrome
+steps:
+  - action: screenshot

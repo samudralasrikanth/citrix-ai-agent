@@ -1,19 +1,20 @@
 from __future__ import annotations
 import os
-import subprocess
-import threading
 import sys
-import json
-import logging
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request, Response
-
-from setup_region import _get_windows
-import config
 
 # Shared root setup
 ROOT = Path(__file__).parent.parent
 sys.path.append(str(ROOT))
+
+import subprocess
+import threading
+import json
+import logging
+from flask import Flask, render_template, jsonify, request, Response
+
+from setup_region import _get_windows
+import config
 
 app = Flask(__name__)
 TESTS_DIR = ROOT / "tests"

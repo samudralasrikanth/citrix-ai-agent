@@ -15,7 +15,7 @@ const state = {
 // UI Elements
 const playbookList = document.getElementById('playbook-list');
 const terminal = document.getElementById('terminal-output');
-const statusPill = document.getElementById('status-pill');
+const statusPill = document.getElementById('agent-status');
 const titleHeader = document.querySelector('.header-title h1');
 
 // --- Initialization ---
@@ -214,12 +214,12 @@ function updateStatusPill(text, type) {
 
 // --- Modal & Window Handling ---
 function openModal() {
-    document.getElementById('modal').classList.add('active');
+    document.getElementById('modal-setup').classList.add('active');
     fetchWindows();
 }
 
 function closeModal() {
-    document.getElementById('modal').classList.remove('active');
+    document.getElementById('modal-setup').classList.remove('active');
 }
 
 async function fetchWindows() {
@@ -229,7 +229,7 @@ async function fetchWindows() {
 }
 
 function renderModalWindowList(windows) {
-    const container = document.getElementById('window-list');
+    const container = document.getElementById('modal-window-list');
     container.innerHTML = '';
     windows.forEach(win => {
         const div = document.createElement('div');
@@ -269,9 +269,8 @@ function setupEventListeners() {
     document.getElementById('btn-run').onclick = () => runPlaybook(false);
     document.getElementById('btn-dry-run').onclick = () => runPlaybook(true);
     document.getElementById('btn-new-test').onclick = openModal;
-    document.getElementById('btn-close-modal').onclick = closeModal;
     document.getElementById('btn-save-region').onclick = saveRegion;
-    document.getElementById('btn-clear-logs').onclick = () => terminal.innerHTML = '';
+    document.getElementById('btn-clear-terminal').onclick = () => terminal.innerHTML = '';
 }
 
 // Bootstrap
