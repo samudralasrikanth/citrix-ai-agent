@@ -6,20 +6,22 @@ a full REST API for test-suite management.
 """
 from __future__ import annotations
 
-import json
-import logging
 import os
-import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
-from queue import Empty, Queue
-from typing import Dict, Optional
 
 # ── Project root setup ─────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
-sys.path.append(str(ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import json
+import logging
+import subprocess
+import threading
+import time
+from queue import Empty, Queue
+from typing import Dict, Optional
 
 import config
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory

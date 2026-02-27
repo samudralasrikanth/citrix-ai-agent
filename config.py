@@ -2,6 +2,18 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# ── Project Root ─────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).parent
+
+# ── DPI Awareness (Windows) ───────────────────────────────────────────────────
+def _set_dpi():
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except: pass
+_set_dpi()
+
 # ── Environment Tweaks (Speed & Noise reduction) ──────────────────────────────
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -17,9 +29,6 @@ os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_allocator_strategy"] = "naive_best_fit"
 os.environ["FLAGS_fraction_of_gpu_memory_to_use"] = "0.0"
 os.environ["FLAGS_cudnn_deterministic"] = "True"
-
-# ── Project Root ─────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).parent
 
 # ── Directory Paths ──────────────────────────────────────────────────────────
 LOGS_DIR        = BASE_DIR / "logs"
