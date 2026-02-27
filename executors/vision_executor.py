@@ -45,13 +45,21 @@ class VisionExecutor(BaseExecutor):
         from capture.screen_capture import ScreenCapture
         capturer = ScreenCapture()
         
-        def capture(): return capturer.capture(self.region)
+        def capture(): 
+            img = capturer.capture(self.region)
+            # If the image is statistically "black/blank", wait and retry once
+            if img is not None and np.mean(img) < 2.5:
+                log.warning("Detected blank/black frame. Waiting for window to render...")
+                time.sleep(1.8)
+                img = capturer.capture(self.region)
+            return img
 
         start_time = time.time()
         result = {"success": False}
         
         # Ensure window is focused before starting
         self._ensure_focus()
+        time.sleep(0.8) # Buffer for OS focus transition
         
         # Self-healing loop: if fails, try to re-align once
         for attempt in range(2):

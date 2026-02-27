@@ -176,8 +176,24 @@ def setup_region():
                 detector = ElementDetector()
                 
                 # 1. Capture & Save Reference Immediately
+                # Focus the window first to avoid blank/black screenshots
+                from setup_region import _activate_window
+                win_name = window.get("name")
+                if win_name:
+                    _activate_window(win_name)
+                    time.sleep(1.0) # Wait for window to render and bring to top
+                
                 img = cap_tool.capture(region=window)
                 cap_tool.close()
+                
+                # Check for blank/black screen
+                if img is not None and np.mean(img) < 2.0:
+                    log.warning("Detected black/blank screenshot. Retrying capture...")
+                    cap_tool = ScreenCapture()
+                    time.sleep(1.5)
+                    img = cap_tool.capture(region=window)
+                    cap_tool.close()
+
                 cv2.imwrite(str(suite_dir / "reference.png"), img)
                 
                 # 2. Scaffold Initial Test (so at least something exists)
