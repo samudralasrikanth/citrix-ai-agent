@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any, Dict, Optional
 # Ensure the root directory is in the path so we pick up the correct config.py
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -38,7 +39,7 @@ def align_region(playbook_path: Path) -> Optional[Dict[str, Any]]:
                     if win_name:
                         from setup_region import _get_windows
                         wins = _get_windows()
-                        match = next((w for w in wins if w["name"] == win_name), None)
+                        match = next((w for w in wins if win_name.lower() in w["name"].lower()), None)
                         if match:
                             log.info(f"Dynamic alignment: Found window '{win_name}' at {match['left']},{match['top']}")
                             return match

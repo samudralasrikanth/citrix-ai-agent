@@ -50,6 +50,9 @@ class VisionExecutor(BaseExecutor):
         start_time = time.time()
         result = {"success": False}
         
+        # Ensure window is focused before starting
+        self._ensure_focus()
+        
         # Self-healing loop: if fails, try to re-align once
         for attempt in range(2):
             try:
@@ -102,7 +105,7 @@ class VisionExecutor(BaseExecutor):
             if not name: return False
             
             wins = _get_windows()
-            match = next((w for w in wins if w["name"] == name), None)
+            match = next((w for w in wins if name.lower() in w["name"].lower()), None)
             if match:
                 log.info(f"Self-healed alignment: Moved to {match['left']},{match['top']}")
                 self.region = match
@@ -110,6 +113,21 @@ class VisionExecutor(BaseExecutor):
         except Exception as e:
             log.warning(f"Re-alignment logic failed: {e}")
         return False
+
+    def _ensure_focus(self):
+        """Attempts to bring the target window to the front."""
+        if not self.suite_root: return
+        try:
+            import json
+            from setup_region import _activate_window
+            cfg_path = self.suite_root / "suite_config.json"
+            if cfg_path.exists():
+                data = json.loads(cfg_path.read_text())
+                name = data.get("window_name")
+                if name:
+                    _activate_window(name)
+                    time.sleep(0.3) # Wait for focus transition
+        except: pass
 
     def click(self, target: str, capture_fn: Callable[[], np.ndarray]) -> Dict[str, Any]:
         log.info(f"Vision Resolution: '{target}'")

@@ -116,6 +116,43 @@ def _get_windows_win() -> list[dict]:
     return wins
 
 
+def _activate_window(name: str) -> bool:
+    """Focus/Activate a window by name (cross-platform)."""
+    try:
+        if IS_WINDOWS:
+            import ctypes
+            EnumWindows = ctypes.windll.user32.EnumWindows
+            GetWindowText = ctypes.windll.user32.GetWindowTextW
+            GetWindowTextLen = ctypes.windll.user32.GetWindowTextLengthW
+            SetForegroundWindow = ctypes.windll.user32.SetForegroundWindow
+            ShowWindow = ctypes.windll.user32.ShowWindow
+
+            def _cb(hwnd, _):
+                length = GetWindowTextLen(hwnd)
+                if length == 0: return True
+                buf = ctypes.create_unicode_buffer(length + 1)
+                GetWindowText(hwnd, buf, length + 1)
+                title = buf.value.strip()
+                # Partial/Case-insensitive matching
+                if name.lower() in title.lower():
+                    # Restore if minimized
+                    ShowWindow(hwnd, 9) # SW_RESTORE
+                    # Bring to front
+                    SetForegroundWindow(hwnd)
+                    return False # Stop enumerating
+                return True
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            EnumWindows(WNDENUMPROC(_cb), 0)
+            return True
+        elif IS_MAC:
+            script = f'tell application "System Events" to set frontmost of (every process whose name is "{name}") to true'
+            subprocess.run(["osascript", "-e", script], capture_output=True)
+            return True
+    except: pass
+    return False
+
+
 def _get_windows() -> list[dict]:
     """Return visible windows using the right API for the current OS."""
     try:
@@ -126,7 +163,6 @@ def _get_windows() -> list[dict]:
         return []
     except Exception:
         return []
-
 
 
 # ── Input helpers ─────────────────────────────────────────────────────────────
