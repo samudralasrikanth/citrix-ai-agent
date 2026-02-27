@@ -45,8 +45,29 @@ class OcrEngine:
         log.info("Initialising Vision OCR (lang=%s, prewarm=%s) …",
                  config.OCR_LANG, config.OCR_PREWARM)
         try:
+            # FIX: Disabling new PIR executor which causes NotImplementedError on some systems (Windows/PIR)
+            import os
+            os.environ["FLAGS_enable_pir_api"] = "0"
+            os.environ["FLAGS_enable_new_executor"] = "0"
+            os.environ["FLAGS_use_mkldnn"] = "0"
+            
+            import paddle
+            try:
+                paddle.set_flags({
+                    "FLAGS_enable_pir_api": 0,
+                    "FLAGS_enable_new_executor": 0
+                })
+            except: pass
+
             from paddleocr import PaddleOCR
-            self._ocr = PaddleOCR(lang=config.OCR_LANG)
+            # Explicitly force CPU and disable MKLDNN to avoid PIR/Runtime errors on Windows
+            self._ocr = PaddleOCR(
+                lang=config.OCR_LANG,
+                use_gpu=False,
+                use_mkldnn=False,
+                use_angle_cls=config.OCR_USE_ANGLE_CLS,
+                show_log=False
+            )
             if config.OCR_PREWARM:
                 self._warm_up()
             OcrEngine._initialized = True

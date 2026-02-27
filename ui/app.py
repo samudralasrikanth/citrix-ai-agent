@@ -90,21 +90,26 @@ def list_test_files(suite_id):
     if not base.exists():
         return jsonify([])
     
+    # Ensure core structure exists so user sees folders
+    for d in ["tests", "memory", "reports"]:
+        (base / d).mkdir(exist_ok=True)
+    
     files = []
-    # Simplified scan for the dashboard
+    # Scan root files and subfolders
     for p in base.rglob("*"):
         if p.name.startswith(".") or ".gemini" in str(p) or "venv" in str(p):
              continue
-        if p.is_file():
-            rel = str(p.relative_to(base))
-            files.append({
-                "path": rel,
-                "name": p.name,
-                "size": p.stat().st_size,
-                "type": p.suffix.lower().replace(".", "") or "file"
-            })
+             
+        rel = str(p.relative_to(base))
+        item = {
+            "path": rel,
+            "name": p.name,
+            "size": p.stat().st_size if p.is_file() else 0,
+            "type": "folder" if p.is_dir() else (p.suffix.lower().replace(".", "") or "file")
+        }
+        files.append(item)
             
-    files.sort(key=lambda x: (x["path"].count("/"), x["path"]))
+    files.sort(key=lambda x: (x["type"] != "folder", x["path"].count("/"), x["path"]))
     return jsonify(files)
 
 
