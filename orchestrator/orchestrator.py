@@ -2,7 +2,7 @@ import time
 import uuid
 import yaml
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from executors.vision_executor import VisionExecutor
 from executors.web_executor import WebExecutor
@@ -27,14 +27,18 @@ class Orchestrator:
             ChannelType.API: APIExecutor()
         }
 
-    def run_playbook(self, playbook_path: Path, dry_run: bool = False) -> Dict[str, Any]:
+    def run_playbook(self, playbook_path: Path, dry_run: bool = False, on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
         """
         Main entry point for running a structured playbook.
         """
+        def emit(status, message, **kwargs):
+            if on_progress:
+                on_progress({"status": status, "message": message, "timestamp": time.strftime("%Y-%m-%dT%H%M%SZ"), **kwargs})
+
         run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         analytics = ExecutionLogger(run_id)
         
-        log.info(f"--- Starting Orchestrator Run: {run_id} ---")
+        emit("init", f"Starting hardened run: {run_id}")
 
         # 1. Load and Validate
         try:
@@ -47,15 +51,20 @@ class Orchestrator:
 
         # 2. Execution Loop
         overall_success = True
+        total_steps = len(playbook.steps)
+        emit("init", f"Loaded {total_steps} steps.", total=total_steps)
+
         for i, step in enumerate(playbook.steps, 1):
-            log.info(f"Step {i}/{len(playbook.steps)}: {step.action} {step.target} via {step.channel}")
+            msg = f"[{i}/{total_steps}] {step.action}: {step.target}"
+            emit("step_start", msg, step=i, total=total_steps, action=step.action, target=step.target)
             
             # Determine channel
             channel = self._detect_channel(step)
             executor = self.executors.get(channel)
             
             if not executor:
-                log.error(f"No executor found for channel: {channel}")
+                err = f"No executor for channel: {channel}"
+                emit("error", err, step=i)
                 overall_success = False
                 break
                 
@@ -66,20 +75,25 @@ class Orchestrator:
                 result = executor.execute(step.dict())
             
             # Enrich result for analytics
+            duration = round(time.time() - step_start, 3)
             step_analytics = {
                 "step_id": i,
                 "action": step.action,
                 "target": step.target,
                 "channel": channel,
-                "duration": round(time.time() - step_start, 3),
+                "duration": duration,
                 **result
             }
             analytics.log_step(step_analytics)
             
-            if not result.get("success"):
-                log.error(f"Step {i} failed: {result.get('error')}")
+            if result.get("success"):
+                emit("step_success", f"OK: {step.action}", step=i)
+            else:
+                err = result.get("error", "Unknown error")
+                emit("error", f"Step {i} failed: {err}", step=i)
                 overall_success = False
-                break
+                if not dry_run:
+                    break
 
         # 3. Finalize
         summary = analytics.get_summary()

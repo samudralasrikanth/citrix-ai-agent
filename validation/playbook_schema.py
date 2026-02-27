@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field, validator, root_validator
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 class ChannelType(str, Enum):
@@ -24,10 +24,10 @@ class PlaybookStep(BaseModel):
     config: Optional[Dict[str, Any]] = None
     description: Optional[str] = None
 
-    @root_validator
-    def validate_action_channel(cls, values):
-        action = values.get("action")
-        channel = values.get("channel")
+    @model_validator(mode='after')
+    def validate_action_channel(self) -> 'PlaybookStep':
+        action = self.action
+        channel = self.channel
         
         if action == ActionType.CALL and channel != ChannelType.API and channel != ChannelType.AUTO:
             raise ValueError(f"Action 'call' is only compatible with 'api' or 'auto' channel.")
@@ -35,7 +35,7 @@ class PlaybookStep(BaseModel):
         if action in [ActionType.CLICK, ActionType.TYPE] and channel == ChannelType.API:
             raise ValueError(f"Action '{action}' is not compatible with 'api' channel.")
             
-        return values
+        return self
 
 class PlaybookModel(BaseModel):
     name: str

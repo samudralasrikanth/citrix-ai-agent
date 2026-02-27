@@ -81,18 +81,21 @@ class VisionExecutor(BaseExecutor):
         # 1. Self-Healing check: Try Memory first
         memory_entry = self.memory.get_entry(screen_hash, target)
         if memory_entry and self.memory.get_historical_score(screen_hash, target) > 0.8:
-            cx, cy = memory_entry["coordinates"]
-            log.info(f"Memory Hit! Trying coordinates: ({cx}, {cy})")
-            if self._perform_and_validate(cx, cy, capture_fn):
-                self.memory.record_success(screen_hash, target, (cx, cy))
-                return {"success": True, "method": "memory", "coords": (cx, cy)}
+            nx, ny = memory_entry["coordinates"]
+            # Convert native to screen for pyautogui
+            from utils.coords import to_screen
+            sx, sy = to_screen(nx, ny)
+            log.info(f"Memory Hit! Trying native({nx}, {ny}) -> screen({sx}, {sy})")
+            if self._perform_and_validate(sx, sy, capture_fn):
+                self.memory.record_success(screen_hash, target, (nx, ny))
+                return {"success": True, "method": "memory", "coords": (nx, ny)}
             else:
                 log.warning("Memory click failed validation. Falling back to fresh detection.")
                 self.memory.record_failure(screen_hash, target)
 
         # 2. Fresh Detection + Ranking
         ocr_results = self.ocr.extract(frame)
-        memory_stats = {} # In a real system, we'd pull success rates for all candidates
+        memory_stats = {} 
         
         ranked = self.ranking.rank_candidates(target, ocr_results, memory_stats)
         
@@ -101,27 +104,31 @@ class VisionExecutor(BaseExecutor):
             log.info("OCR Ranking too low. Falling back to template matching.")
             tpl_match = self.template.find(target, frame, self.region, context_id=self.context_id)
             if tpl_match:
-                cx, cy = tpl_match
-                if self._perform_and_validate(cx, cy, capture_fn):
-                    return {"success": True, "method": "template", "coords": (cx, cy)}
+                nx, ny = tpl_match
+                from utils.coords import to_screen
+                sx, sy = to_screen(nx, ny)
+                if self._perform_and_validate(sx, sy, capture_fn):
+                    return {"success": True, "method": "template", "coords": (nx, ny)}
             
             return {"success": False, "error": f"Target '{target}' not found with high confidence."}
 
         # Select best candidate
         best = ranked[0]
         box = best["box"]
-        cx, cy = (box[0] + box[2]) // 2, (box[1] + box[3]) // 2
+        # Central point in NATIVE pixels (screenshot space)
+        nx = (box[0] + box[2]) // 2 + self.region.get("left", 0)
+        ny = (box[1] + box[3]) // 2 + self.region.get("top", 0)
         
-        # Transform to global coordinates if region is active
-        abs_cx = cx + self.region.get("left", 0)
-        abs_cy = cy + self.region.get("top", 0)
+        # Transform to SCREEN pixels for pyautogui
+        from utils.coords import to_screen
+        sx, sy = to_screen(nx, ny)
 
-        if self._perform_and_validate(abs_cx, abs_cy, capture_fn):
-            self.memory.record_success(screen_hash, target, (abs_cx, abs_cy))
+        if self._perform_and_validate(sx, sy, capture_fn):
+            self.memory.record_success(screen_hash, target, (nx, ny))
             return {
                 "success": True, 
                 "method": "ocr", 
-                "coords": (abs_cx, abs_cy), 
+                "coords": (nx, ny),
                 "ranking": best["ranking_details"]
             }
         
@@ -132,11 +139,11 @@ class VisionExecutor(BaseExecutor):
         if not res["success"]:
             return res
         
-        time.sleep(0.2)
+        time.sleep(0.3) # Wait for focus
         modifier = "command" if sys.platform == "darwin" else "ctrl"
         pyautogui.hotkey(modifier, "a")
         pyautogui.press("backspace")
-        pyautogui.typewrite(value, interval=0.02)
+        pyautogui.typewrite(value, interval=0.03)
         return {"success": True, "method": res["method"], "coords": res.get("coords")}
 
     def verify(self, target: str, capture_fn: Callable[[], np.ndarray]) -> Dict[str, Any]:

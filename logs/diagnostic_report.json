@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-02-26 20:29:57",
+  "os": "Darwin 24.4.0",
+  "python": "3.9.6 (default, Mar 12 2025, 20:22:46) \n[Clang 17.0.0 (clang-1700.0.13.3)]",
+  "results": {
+    "dependencies": "PASS",
+    "capture": "PASS",
+    "capture_path": "/Users/srikanthsamudrala/Documents/legacia/citrix_ai_agent/logs/diag_capture.png",
+    "pyautogui_size": "1470x956",
+    "mss_size": "1470x956",
+    "scaling_factor": [
+      1.0,
+      1.0
+    ],
+    "scaling_status": "NORMAL",
+    "ocr": "PASS",
+    "ocr_time": 1.6
+  },
+  "errors": []
+}

@@ -30,7 +30,9 @@ from capture.screen_capture import ScreenCapture
 from vision.ocr_engine import OcrEngine
 from vision.element_fingerprinter import ElementFingerprinter
 from utils.logger import get_logger
+from utils.coords import to_native, set_dpi_awareness
 
+set_dpi_awareness()
 log = get_logger("Recorder")
 
 
@@ -177,17 +179,21 @@ class PlaybookRecorder:
         Take a screenshot, run OCR, return a full ElementFingerprint dict.
         Validates that the mouse is within the automation region.
         """
-        x, y = pyautogui.position()
-        r    = self.region
-
-        if not (r["left"] <= x <= r["left"] + r["width"] and
-                r["top"]  <= y <= r["top"]  + r["height"]):
+        # --- FIX: Scale-aware coordinate capture ---
+        gx, gy = pyautogui.position()
+        nx, ny = to_native(gx, gy)
+        
+        r = self.region
+        
+        # Check against native region
+        if not (r["left"] <= nx <= r["left"] + r["width"] and
+                r["top"]  <= ny <= r["top"]  + r["height"]):
             print(f"\n  {C.YELLOW}⚠  Mouse is OUTSIDE the Citrix region "
-                  f"({int(x)},{int(y)}).  Move into the window first.{C.RESET}")
+                  f"({int(nx)},{int(ny)}).  Move into the window first.{C.RESET}")
             return None
 
-        rx, ry = x - r["left"], y - r["top"]
-        print(f"  {C.GRAY}🔍 Scanning element at region-relative ({int(rx)},{int(ry)}) …{C.RESET}",
+        rx, ry = nx - r["left"], ny - r["top"]
+        print(f"  {C.GRAY}🔍 Scanning element at native-relative ({int(rx)},{int(ry)}) …{C.RESET}",
               end="\r", flush=True)
 
         frame       = self.capturer.capture(region=r)
@@ -262,108 +268,126 @@ class PlaybookRecorder:
     # ── Main Loop ──────────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        print(f"  {C.GREEN}Recording active. Hover over any Citrix element → press ENTER.{C.RESET}\n")
+        """
+        Non-blocking loop. Supports both CLI (input) and UI (stdin pipe).
+        """
+        print(f"  {C.GREEN}Recording active. Hover over any Citrix element → press ENTER.{C.RESET}\n", flush=True)
+        print("[RECORDER_READY]", flush=True) # Signal to UI
 
+        import select
+        
         try:
-            while True:
-                try:
-                    raw = input(
-                        f"  {C.BOLD}[{len(self.steps)+1}]{C.RESET}{C.GRAY}>{C.RESET} "
-                    ).strip()
-                except (EOFError, KeyboardInterrupt):
-                    break
-
-                # ── ENTER → Vision capture ────────────────────────────────────
-                if not raw:
-                    result = self._capture_fingerprint()
-                    if result is None:
-                        continue
-                    fp_dict, playbook_target = result
-                    label    = fp_dict.get("label", "")
-                    etype    = fp_dict.get("type",  "element")
-                    context  = fp_dict.get("context", "")
-                    conf     = fp_dict.get("confidence", 0)
-
-                    if label:
-                        desc = f'Click "{label}" ({etype})'
-                        if context:
-                            desc += f' in "{context}"'
-                        color = C.GREEN
-                        quality = "✓ Semantic match"
-                    elif context:
-                        desc  = f'Click {etype} near "{context}"'
-                        color = C.YELLOW
-                        quality = "⚠ Contextual match"
+            while not self._closing:
+                # Use select for non-blocking stdin check (works on Unix, Mac)
+                # For Windows fallback, we might need a different approach, but let's try this
+                if IS_MAC or not IS_WINDOWS:
+                    if sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
+                        raw = sys.stdin.readline().strip()
+                        self._process_command(raw)
                     else:
-                        desc  = f'Click {etype} at relative ({fp_dict["rel_pos"]["x"]:.2f},{fp_dict["rel_pos"]["y"]:.2f})'
-                        color = C.RED
-                        quality = "✗ Positional fallback"
-
-                    self._add_step(
-                        action="click",
-                        target=playbook_target,
-                        description=desc,
-                        fingerprint=fp_dict,
-                    )
-                    conf_str = f"{int(conf*100)}%" if conf else ""
-                    print(f"  {color}{quality}{C.RESET}  {C.BOLD}[{len(self.steps)}]{C.RESET}  "
-                          f"{C.WHITE}{desc}{C.RESET}  {C.GRAY}{conf_str}{C.RESET}")
-
-                # ── q / quit ──────────────────────────────────────────────────
-                elif raw.lower() in ("q", "quit", "exit"):
-                    break
-
-                # ── ls / list ─────────────────────────────────────────────────
-                elif raw.lower() in ("ls", "list"):
-                    _step_table(self.steps)
-
-                # ── u / undo ──────────────────────────────────────────────────
-                elif raw.lower() in ("u", "undo"):
-                    self._undo()
-
-                # ── s / screenshot ────────────────────────────────────────────
-                elif raw.lower() in ("s", "screenshot"):
-                    self._add_step("screenshot", "", description="Capture screenshot")
-                    print(f"  {C.CYAN}📸 [{len(self.steps)}] screenshot added{C.RESET}")
-
-                # ── t <text> → type ───────────────────────────────────────────
-                elif raw.lower().startswith("t "):
-                    value = raw[2:].strip()
-                    if value:
-                        self._add_step(
-                            "type", "",
-                            value=value,
-                            description=f'Type "{value}"',
-                        )
-                        print(f"  {C.CYAN}⌨  [{len(self.steps)}] type → \"{value}\"{C.RESET}")
-                    else:
-                        print(f"  {C.RED}Usage: t <text to type>{C.RESET}")
-
-                # ── w <text> → wait_for ───────────────────────────────────────
-                elif raw.lower().startswith("w "):
-                    text = raw[2:].strip()
-                    if text:
-                        self._add_step(
-                            "wait_for", text,
-                            description=f'Wait for "{text}" on screen',
-                        )
-                        print(f"  {C.CYAN}⏳ [{len(self.steps)}] wait_for → \"{text}\"{C.RESET}")
-                    else:
-                        print(f"  {C.RED}Usage: w <text to wait for>{C.RESET}")
-
-                # ── p <secs> → pause ──────────────────────────────────────────
-                elif raw.lower().startswith("p"):
-                    parts = raw.split()
-                    secs  = parts[1] if len(parts) > 1 else "1"
-                    self._add_step("pause", secs, description=f"Pause {secs}s")
-                    print(f"  {C.CYAN}⏸  [{len(self.steps)}] pause → {secs}s{C.RESET}")
-
-                # ── h / help ──────────────────────────────────────────────────
-                elif raw.lower() in ("h", "help", "?"):
-                    self._print_help()
-
+                        time.sleep(0.05)
                 else:
-                    print(f"  {C.GRAY}Unknown: '{raw}'. Type 'h' for help.{C.RESET}")
+                    # Windows simple fallback (blocking) until we add a listener
+                    raw = input(f"  {C.BOLD}[{len(self.steps)+1}]{C.RESET}{C.GRAY}>{C.RESET} ").strip()
+                    self._process_command(raw)
+                    
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self._save_yaml()
+
+    def _process_command(self, raw: str):
+        # ── ENTER → Vision capture ────────────────────────────────────
+        if not raw:
+            result = self._capture_fingerprint()
+            if result is None:
+                return
+            fp_dict, playbook_target = result
+            label    = fp_dict.get("label", "")
+            etype    = fp_dict.get("type",  "element")
+            context  = fp_dict.get("context", "")
+            conf     = fp_dict.get("confidence", 0)
+
+            if label:
+                desc = f'Click "{label}" ({etype})'
+                if context:
+                    desc += f' in "{context}"'
+                color = C.GREEN
+                quality = "✓ Semantic match"
+            elif context:
+                desc  = f'Click {etype} near "{context}"'
+                color = C.YELLOW
+                quality = "⚠ Contextual match"
+            else:
+                desc  = f'Click {etype} at relative ({fp_dict["rel_pos"]["x"]:.2f},{fp_dict["rel_pos"]["y"]:.2f})'
+                color = C.RED
+                quality = "✗ Positional fallback"
+
+            self._add_step(
+                action="click",
+                target=playbook_target,
+                description=desc,
+                fingerprint=fp_dict,
+            )
+            conf_str = f"{int(conf*100)}%" if conf else ""
+            print(f"  {color}{quality}{C.RESET}  {C.BOLD}[{len(self.steps)}]{C.RESET}  "
+                    f"{C.WHITE}{desc}{C.RESET}  {C.GRAY}{conf_str}{C.RESET}", flush=True)
+
+        # ── q / quit ──────────────────────────────────────────────────
+        elif raw.lower() in ("q", "quit", "exit"):
+            self._closing = True
+
+        # ── ls / list ─────────────────────────────────────────────────
+        elif raw.lower() in ("ls", "list"):
+            _step_table(self.steps)
+
+        # ── u / undo ──────────────────────────────────────────────────
+        elif raw.lower() in ("u", "undo"):
+            self._undo()
+
+        # ── s / screenshot ────────────────────────────────────────────
+        elif raw.lower() in ("s", "screenshot"):
+            self._add_step("screenshot", "", description="Capture screenshot")
+            print(f"  {C.CYAN}📸 [{len(self.steps)}] screenshot added{C.RESET}", flush=True)
+
+        # ── t <text> → type ───────────────────────────────────────────
+        elif raw.lower().startswith("t "):
+            value = raw[2:].strip()
+            if value:
+                self._add_step(
+                    "type", "",
+                    value=value,
+                    description=f'Type "{value}"',
+                )
+                print(f"  {C.CYAN}⌨  [{len(self.steps)}] type → \"{value}\"{C.RESET}", flush=True)
+            else:
+                print(f"  {C.RED}Usage: t <text to type>{C.RESET}", flush=True)
+
+        # ── w <text> → wait_for ───────────────────────────────────────
+        elif raw.lower().startswith("w "):
+            text = raw[2:].strip()
+            if text:
+                self._add_step(
+                    "wait_for", text,
+                    description=f'Wait for "{text}" on screen',
+                )
+                print(f"  {C.CYAN}⏳ [{len(self.steps)}] wait_for → \"{text}\"{C.RESET}", flush=True)
+            else:
+                print(f"  {C.RED}Usage: w <text to wait for>{C.RESET}", flush=True)
+
+        # ── p <secs> → pause ──────────────────────────────────────────
+        elif raw.lower().startswith("p"):
+            parts = raw.split()
+            secs  = parts[1] if len(parts) > 1 else "1"
+            self._add_step("pause", secs, description=f"Pause {secs}s")
+            print(f"  {C.CYAN}⏸  [{len(self.steps)}] pause → {secs}s{C.RESET}", flush=True)
+
+        # ── h / help ──────────────────────────────────────────────────
+        elif raw.lower() in ("h", "help", "?"):
+            self._print_help()
+
+        else:
+            print(f"  {C.GRAY}Unknown: '{raw}'. Type 'h' for help.{C.RESET}", flush=True)
 
         except KeyboardInterrupt:
             pass

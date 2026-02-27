@@ -1,0 +1,5 @@
+{"timestamp": "2026-02-26T20:20:37Z", "run_id": "run_1772117437_f309af", "step_id": 1, "action": "call", "target": "SessionInit", "channel": "api", "duration": 0.0, "success": true, "message": "Dry run skipped"}
+{"timestamp": "2026-02-26T20:20:37Z", "run_id": "run_1772117437_f309af", "step_id": 2, "action": "click", "target": "OK", "channel": "vision", "duration": 0.0, "success": true, "message": "Dry run skipped"}
+{"timestamp": "2026-02-26T20:20:37Z", "run_id": "run_1772117437_f309af", "step_id": 3, "action": "type", "target": "Search", "channel": "vision", "duration": 0.0, "success": true, "message": "Dry run skipped"}
+{"timestamp": "2026-02-26T20:20:37Z", "run_id": "run_1772117437_f309af", "step_id": 4, "action": "click", "target": "Connect", "channel": "vision", "duration": 0.0, "success": true, "message": "Dry run skipped"}
+{"timestamp": "2026-02-26T20:20:37Z", "run_id": "run_1772117437_f309af", "step_id": 5, "action": "verify", "target": "Success", "channel": "vision", "duration": 0.0, "success": true, "message": "Dry run skipped"}
