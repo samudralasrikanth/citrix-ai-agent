@@ -48,8 +48,7 @@ class OcrEngine:
             from paddleocr import PaddleOCR
             self._ocr = PaddleOCR(
                 lang=config.OCR_LANG,
-                use_angle_cls=config.OCR_USE_ANGLE_CLS,
-                show_log=False
+                use_angle_cls=False
             )
             if config.OCR_PREWARM:
                 self._warm_up()

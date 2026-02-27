@@ -6,6 +6,10 @@ from typing import Dict, List, Optional
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["SCREEN_CAPTURE_DEBUG"] = "False"
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["FLAGS_use_mkldnn"] = "0"
 
 # ── Project Root ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
