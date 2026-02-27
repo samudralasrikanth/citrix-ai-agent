@@ -10,9 +10,10 @@ class ExecutionLogger:
     Captures every step in detail for offline analysis and reporting.
     """
 
-    def __init__(self, run_id: str):
+    def __init__(self, run_id: str, base_dir: Optional[Path] = None):
         self.run_id = run_id
-        self.log_dir = config.LOGS_DIR / "runs" / run_id
+        # Prioritize provided base_dir (e.g. suite/reports)
+        self.log_dir = (base_dir / run_id) if base_dir else (config.LOGS_DIR / "runs" / run_id)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_file = self.log_dir / "analytics.jsonlines"
         self.steps: List[Dict[str, Any]] = []

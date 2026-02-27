@@ -19,10 +19,11 @@ class Orchestrator:
     Manages multi-channel execution, ranking, self-healing, and analytics.
     """
 
-    def __init__(self, region: Optional[Dict[str, Any]] = None):
+    def __init__(self, region: Optional[Dict[str, Any]] = None, suite_root: Optional[Path] = None):
         self.region = region
+        self.suite_root = suite_root
         self.executors = {
-            ChannelType.VISION: VisionExecutor(region=region),
+            ChannelType.VISION: VisionExecutor(region=region, suite_root=suite_root),
             ChannelType.WEB: WebExecutor(),
             ChannelType.API: APIExecutor()
         }
@@ -36,7 +37,8 @@ class Orchestrator:
                 on_progress({"status": status, "message": message, "timestamp": time.strftime("%Y-%m-%dT%H%M%SZ"), **kwargs})
 
         run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-        analytics = ExecutionLogger(run_id)
+        reports_dir = (self.suite_root / "reports") if self.suite_root else None
+        analytics = ExecutionLogger(run_id, base_dir=reports_dir)
         
         emit("init", f"Starting hardened run: {run_id}")
 

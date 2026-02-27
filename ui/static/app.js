@@ -7,7 +7,7 @@
 const state = {
     playbooks: [],
     currentId: null,
-    currentFile: 'playbook.yaml',
+    currentFile: 'suite_config.json',
     currentWindow: null,
     isRunning: false,
     expandedTests: new Set(),
@@ -71,7 +71,7 @@ function renderPlaybookList() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
-            <span>${pb.id}</span>
+            <span>${pb.name || pb.id}</span>
             <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9 18 15 12 9 6"/>
             </svg>`;
@@ -113,12 +113,14 @@ async function loadFileList(testId, container) {
 
 function renderFileItems(testId, files, container) {
     container.innerHTML = '';
-    files.forEach(file => {
+    files.forEach(fileObj => {
+        const file = fileObj.path;
         const li = document.createElement('li');
         li.className = 'file-item';
         li.dataset.test = testId;
         li.dataset.file = file;
-        if (state.currentId === testId && state.currentFile === file) li.classList.add('active');
+        const isActive = (state.currentId === testId && state.currentFile === file);
+        if (isActive) li.classList.add('active');
 
         const icon = file.endsWith('.png') ? '🖼' : file.endsWith('.json') ? '⚙' : '📄';
         li.innerHTML = `<span>${icon}</span><span>${file}</span>`;
@@ -128,7 +130,7 @@ function renderFileItems(testId, files, container) {
 }
 
 // ── Load Playbook / File ──────────────────────────────────────────────────────
-async function loadPlaybook(id, filename = 'playbook.yaml') {
+async function loadPlaybook(id, filename = 'suite_config.json') {
     state.currentId = id;
     state.currentFile = filename;
     titleHeader.textContent = `${id} / ${filename}`;
@@ -158,10 +160,52 @@ async function loadPlaybook(id, filename = 'playbook.yaml') {
     }
 
     // Sync active states
-    document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
-    const el = document.querySelector(`[data-test="${id}"][data-file="${filename}"]`);
-    if (el) el.classList.add('active');
+    document.querySelectorAll('.file-item').forEach(e => e.classList.remove('active'));
+    const activeEl = document.querySelector(`[data-test="${id}"][data-file="${filename}"]`);
+    if (activeEl) activeEl.classList.add('active');
+
+    // Show Scan UI button if we have an active suite
+    $('btn-scan-ui').classList.toggle('hidden', !id);
 }
+
+async function scanSuiteUI() {
+    if (!state.currentId) return;
+    const btn = $('btn-scan-ui');
+    const oldHtml = btn.innerHTML;
+
+    // If an image is open, scan the image instead of the window
+    const isImage = state.currentFile && state.currentFile.endsWith('.png');
+    const payload = isImage ? { file: state.currentFile } : {};
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:8px"></div> Scanning…';
+
+    try {
+        logEntry('info', `Starting UI scan for ${isImage ? 'file: ' + state.currentFile : 'target window'}…`);
+        const res = await fetch(`/api/suites/${state.currentId}/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+
+        if (res.ok && result.success) {
+            logEntry('success', result.message);
+            // Refresh file list to show memory/ui_map.json etc
+            const container = document.querySelector(`.test-container .nav-item[data-id="${state.currentId}"]`).nextElementSibling;
+            await loadFileList(state.currentId, container);
+        } else {
+            logEntry('error', `Scan failed: ${result.error || 'Server error'}`);
+            alert('Scan failed: ' + (result.error || 'Check logs'));
+        }
+    } catch (e) {
+        logEntry('error', `Network error during scan: ${e.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+    }
+}
+
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 async function savePlaybook() {
@@ -191,7 +235,8 @@ async function runPlaybook(dryRun = false) {
     setProgress(0, dryRun ? 'Dry Run…' : 'Starting…');
     terminal.innerHTML = '';
 
-    state.eventSource = new EventSource(`/api/run/${state.currentId}?dry_run=${dryRun}`);
+    const runFile = state.currentFile || 'tests/main_flow.yaml';
+    state.eventSource = new EventSource(`/api/run/${state.currentId}?dry_run=${dryRun}&file=${runFile}`);
 
     state.eventSource.onmessage = evt => {
         if (evt.data === '[DONE]') { finishRun(true); return; }
@@ -494,24 +539,58 @@ function renderWindowList(windows) {
 }
 
 async function saveRegion() {
+    const btn = $('btn-save-region');
     const name = $('new-region-name').value.trim();
+    const platform = document.querySelector('input[name="platform"]:checked').value;
+    const hasDb = $('cap-db').checked;
+    const hasApi = $('cap-api').checked;
+
     if (!name) return alert('Enter a suite name.');
-    if (!state.currentWindow) return alert('Select a target window.');
+    if (platform !== 'web' && !state.currentWindow) return alert('Select a target window.');
 
-    const res = await fetch('/api/regions/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, window: state.currentWindow }),
-    });
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin-right:8px"></div> Creating…';
 
-    if (res.ok) {
-        closeModal();
-        state.expandedTests.add(name);
-        await fetchPlaybooks();
-        await loadPlaybook(name);
-        logEntry('success', `Test Suite '${name}' created.`);
-    } else {
-        logEntry('error', 'Failed to create test suite.');
+    const payload = {
+        name,
+        platform,
+        capabilities: { db: hasDb, api: hasApi },
+        window: state.currentWindow
+    };
+
+    if (platform === 'web') {
+        payload.web_config = {
+            url: $('web-url').value,
+            browser: $('web-browser').value
+        };
+    }
+
+    try {
+        const res = await fetch('/api/regions/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        const result = await res.json();
+
+        if (res.ok && result.success) {
+            closeModal();
+            state.expandedTests.add(result.id);
+            await fetchPlaybooks();
+            await loadPlaybook(result.id, 'tests/main_flow.yaml');
+            logEntry('success', `Test Suite '${result.id}' created.`);
+        } else {
+            console.error('Create Suite Failed:', result);
+            alert('Failed to create suite: ' + (result.error || 'Server error'));
+            logEntry('error', 'Failed to create test suite: ' + (result.error || 'Check console'));
+        }
+    } catch (e) {
+        console.error('Fetch Error:', e);
+        alert('Network error while creating suite.');
+    } finally {
+        $('btn-save-region').disabled = false;
+        $('btn-save-region').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Create Suite';
     }
 }
 
@@ -522,14 +601,32 @@ function setupEventListeners() {
     $('btn-dry-run').addEventListener('click', () => runPlaybook(true));
     $('btn-stop').addEventListener('click', stopPlaybook);
     $('btn-new-test').addEventListener('click', openModal);
-    $('btn-open-record').addEventListener('click', openRecordModal);
-    $('btn-start-record').addEventListener('click', startRecording);
-    $('btn-cancel-record').addEventListener('click', closeRecordModal);
-    $('btn-close-record').addEventListener('click', closeRecordModal);
-    $('btn-stop-record').addEventListener('click', stopRecording);
-    $('btn-capture-step').addEventListener('click', captureRecordStep);
-    $('btn-record-done').addEventListener('click', closeRecordModal);
     $('btn-save-region').addEventListener('click', saveRegion);
+    $('btn-scan-ui').addEventListener('click', scanSuiteUI);
+
+    // Platform toggle logic
+    document.querySelectorAll('input[name="platform"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const isWeb = e.target.value === 'web';
+            $('web-config-section').classList.toggle('hidden', !isWeb);
+            $('window-selection-group').classList.toggle('hidden', isWeb);
+        });
+    });
+
+    // Cleanup dead record listeners (if any)
+    const runSafe = (id, fn) => {
+        const el = $(id);
+        if (el) el.addEventListener('click', fn);
+    };
+
+    runSafe('btn-open-record', openRecordModal);
+    runSafe('btn-start-record', startRecording);
+    runSafe('btn-cancel-record', closeRecordModal);
+    runSafe('btn-close-record', closeRecordModal);
+    runSafe('btn-stop-record', stopRecording);
+    runSafe('btn-capture-step', captureRecordStep);
+    runSafe('btn-record-done', closeRecordModal);
+
     $('btn-clear-terminal').addEventListener('click', () => {
         terminal.innerHTML = '';
         stepCounter.textContent = '';

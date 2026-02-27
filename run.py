@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT        = Path(__file__).parent
 VENV_DIR    = ROOT / "venv"
 PLAYBOOKS   = ROOT / "playbooks"
+SUITES_DIR  = ROOT / "suites"
 MEMORY_DIR  = ROOT / "memory"
 REGIONS_DIR = MEMORY_DIR / "regions"
 REGION_FILE = MEMORY_DIR / "region.json"   # legacy default region
@@ -151,7 +152,17 @@ def cmd_run(playbook_arg: str, extra_flags: list[str]) -> int:
     if not path.exists():
         path = PLAYBOOKS / f"{playbook_arg.removesuffix('.yaml')}.yaml"
     
-    # Check tests/ directory (recorder output)
+    # Check suites/ directory (new structure)
+    if not path.exists():
+        suite_path = SUITES_DIR / playbook_arg / "tests" / "main_flow.yaml"
+        if suite_path.exists():
+            path = suite_path
+        else:
+            # Maybe they specified a file inside a suite
+            # e.g. run my_suite/tests/test1.yaml
+            path = SUITES_DIR / playbook_arg
+    
+    # Check tests/ directory (legacy recorder output)
     if not path.exists():
         test_path = ROOT / "tests" / playbook_arg / "playbook.yaml"
         if test_path.exists():
@@ -174,16 +185,24 @@ def cmd_list() -> int:
     """List all available playbooks and tests."""
     # Manual
     yamls = sorted(PLAYBOOKS.glob("*.yaml"))
-    # Recorded
-    tests = sorted([d for d in (ROOT / "tests").iterdir() if d.is_dir() and (d / "playbook.yaml").exists()])
+    # Suites
+    suites = []
+    if SUITES_DIR.exists():
+        suites = sorted([d for d in SUITES_DIR.iterdir() if d.is_dir()])
+    # Recorded (Legacy)
+    legacy = []
+    if (ROOT / "tests").exists():
+        legacy = sorted([d for d in (ROOT / "tests").iterdir() if d.is_dir() and (d / "playbook.yaml").exists()])
 
     print(f"\n  Available Automation:")
     print("  " + "─" * 45)
     
     for f in yamls:
         print(f"  {f.stem:<25} — (Manual Playbook)")
-    for d in tests:
-        print(f"  {d.name:<25} — (Recorded Session)")
+    for d in suites:
+        print(f"  {d.name:<25} — (Test Suite)")
+    for d in legacy:
+        print(f"  {d.name:<25} — (Legacy Recorded Session)")
         
     print(f"\n  To run:  ./run.sh run <name>\n")
     return 0

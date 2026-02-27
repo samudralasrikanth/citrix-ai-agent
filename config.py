@@ -22,10 +22,9 @@ BASE_DIR = Path(__file__).parent
 # ── Directory Paths ──────────────────────────────────────────────────────────
 LOGS_DIR        = BASE_DIR / "logs"
 SCREENSHOTS_DIR = BASE_DIR / "screenshots"
-MEMORY_DIR      = BASE_DIR / "memory"
-TESTS_DIR       = BASE_DIR / "tests"
+SUITES_DIR      = BASE_DIR / "suites"
 
-for _d in (LOGS_DIR, SCREENSHOTS_DIR, MEMORY_DIR, TESTS_DIR):
+for _d in (LOGS_DIR, SCREENSHOTS_DIR, SUITES_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── Subprocess Execution ──────────────────────────────────────────────────────

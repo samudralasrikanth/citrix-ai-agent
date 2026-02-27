@@ -16,29 +16,51 @@ from utils.logger import get_logger
 
 log = get_logger("Runner")
 
-def align_region(test_path: Path) -> Optional[Dict[str, Any]]:
+def align_region(playbook_path: Path) -> Optional[Dict[str, Any]]:
     """
     Alignment phase: Find the target window/region.
+    Checks the current directory and parent directory for config/reference files.
     """
-    ref_path = test_path / "reference.png"
-    reg_path = test_path / "region.json"
+    search_paths = [playbook_path.parent, playbook_path.parent.parent]
     
     capturer = ScreenCapture()
+    region = None
+
     try:
-        # 1. Try visual alignment
-        region = capturer.locate_window(ref_path)
-        if region:
-            log.info(f"Visual alignment success: {region['left']},{region['top']}")
-            return region
-            
-        # 2. Fallback to static region data
-        if reg_path.exists():
-            try:
-                data = json.loads(reg_path.read_text())
-                log.info("Visual match failed, using static region from region.json")
-                return data.get("region", data)
-            except:
-                pass
+        for path in search_paths:
+            ref_path = path / "reference.png"
+            reg_path = path / "region.json"
+            cfg_path = path / "suite_config.json"
+
+            # 1. Try visual alignment if reference exists
+            if ref_path.exists():
+                region = capturer.locate_window(ref_path)
+                if region:
+                    log.info(f"Visual alignment success using {ref_path}")
+                    return region
+
+            # 2. Try suite_config.json
+            if cfg_path.exists():
+                try:
+                    data = json.loads(cfg_path.read_text())
+                    if data.get("platform") == "web":
+                        log.info("Web platform detected, bypassing region alignment.")
+                        return {}
+                    static_reg = data.get("region")
+                    if static_reg:
+                        log.info(f"Using static region from {cfg_path.name}")
+                        return static_reg
+                except:
+                    pass
+
+            # 3. Fallback to region.json
+            if reg_path.exists():
+                try:
+                    data = json.loads(reg_path.read_text())
+                    log.info(f"Using static region from {reg_path.name}")
+                    return data.get("region", data)
+                except:
+                    pass
     finally:
         capturer.close()
     
@@ -55,7 +77,15 @@ def main():
 
     # 1. Alignment Phase
     print(json.dumps({"status": "scan", "message": "Aligning interface coordinates..."}), flush=True)
-    region = align_region(test_path)
+    
+    # Try to find the suite root (where suite_config.json lives)
+    suite_root = None
+    for p in [playbook_file.parent, playbook_file.parent.parent]:
+        if (p / "suite_config.json").exists():
+            suite_root = p
+            break
+
+    region = align_region(playbook_file)
     
     if not region:
         # If no region found, we can still try to run (global mode) or fail
@@ -63,7 +93,8 @@ def main():
         region = {}
 
     # 2. Execution Phase
-    orch = Orchestrator(region=region)
+    # Pass suite_root so executors know where to find their local memory/maps
+    orch = Orchestrator(region=region, suite_root=suite_root)
     
     def on_progress(p):
         print(json.dumps(p), flush=True)

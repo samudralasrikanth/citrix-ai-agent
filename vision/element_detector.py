@@ -74,6 +74,23 @@ class ElementDetector:
         log.debug("Detected %d contour elements.", len(elements))
         return elements
 
+    def scan(self, image: np.ndarray) -> list[Element]:
+        """
+        Full discovery pipeline: Contours → OCR → Label Merge.
+        """
+        from vision.ocr_engine import OcrEngine
+        ocr = OcrEngine()
+        
+        # 1. Geometry discovery
+        contours = self.detect_contours(image)
+        # 2. Text extraction (upscaled for better Citrix button hits)
+        ocr_hits = ocr.extract_with_scale(image)
+        # 3. Correlation
+        elements = self.merge_with_ocr(contours, ocr_hits)
+        # 4. Canonical sorting
+        elements.sort(key=lambda e: (e['box'][1], e['box'][0]))
+        return elements
+
     def merge_with_ocr(
         self,
         elements: list[Element],
@@ -81,21 +98,15 @@ class ElementDetector:
     ) -> list[Element]:
         """
         Label contour elements whose boxes overlap with OCR bounding boxes.
-        Orphan OCR results (no matching contour) are appended as their own elements.
-
-        Args:
-            elements:    Output of detect_contours().
-            ocr_results: Output of OcrEngine.extract().
-
-        Returns:
-            Combined, labelled element list.
         """
+        from vision.text_normalizer import normalize
+        
         for elem in elements:
             ex1, ey1, ex2, ey2 = elem["box"]
             for ocr in ocr_results:
                 ox1, oy1, ox2, oy2 = ocr["box"]
+                # AABB intersection
                 if ox1 < ex2 and ox2 > ex1 and oy1 < ey2 and oy2 > ey1:
-                    from vision.text_normalizer import normalize
                     txt = normalize(ocr["text"])
                     sep = " " if elem["label"] else ""
                     elem["label"] += sep + txt
@@ -103,10 +114,31 @@ class ElementDetector:
         seen: set[tuple] = {tuple(e["box"]) for e in elements}
         for ocr in ocr_results:
             if tuple(ocr["box"]) not in seen:
-                from vision.text_normalizer import normalize
                 elements.append(_make_element(ocr["box"], normalize(ocr["text"]), "ocr_only"))
 
         return elements
+
+    def annotate(self, image: np.ndarray, elements: list[Element]) -> np.ndarray:
+        """
+        Generate a visual debug map with boxes and ID labels.
+        """
+        canvas = image.copy()
+        for i, elem in enumerate(elements):
+            box = elem["box"]
+            label = elem.get("label", "").strip()
+            
+            # Color coding: Green for labeled, Gray for detected boxes
+            color = (0, 255, 0) if label else (140, 140, 140)
+            cv2.rectangle(canvas, (box[0], box[1]), (box[2], box[3]), color, 1)
+            
+            # Label overlay
+            txt = f"#{i}"
+            if label:
+                txt += f" {label[:12]}"
+            
+            cv2.putText(canvas, txt, (box[0], box[1] - 4), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
+        return canvas
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -23,9 +23,10 @@ class VisionExecutor(BaseExecutor):
     Uses OCR, Ranking, Memory, and Screen State Hashing for robust automation.
     """
 
-    def __init__(self, region: Optional[Dict[str, Any]] = None, context_id: str = "default"):
+    def __init__(self, region: Optional[Dict[str, Any]] = None, context_id: str = "default", suite_root: Optional[Path] = None):
         self.region = region or {}
         self.context_id = context_id
+        self.suite_root = suite_root
         
         # Core Engines
         self.ocr = OcrEngine()
@@ -61,7 +62,10 @@ class VisionExecutor(BaseExecutor):
                 result = {"success": True}
             elif action == "screenshot":
                 img = capture()
-                path = config.SCREENSHOTS_DIR / f"manual_{int(time.time())}.png"
+                # Prioritize suite-local screenshots dir
+                ss_dir = (self.suite_root / "screenshots") if self.suite_root else config.SCREENSHOTS_DIR
+                ss_dir.mkdir(exist_ok=True, parents=True)
+                path = ss_dir / f"manual_{int(time.time())}.png"
                 save_image(img, str(path))
                 result = {"success": True, "path": str(path)}
                 
@@ -73,66 +77,78 @@ class VisionExecutor(BaseExecutor):
         return result
 
     def click(self, target: str, capture_fn: Callable[[], np.ndarray]) -> Dict[str, Any]:
-        log.info(f"Vision Click Resolution: '{target}'")
+        log.info(f"Vision Resolution: '{target}'")
         
         frame = capture_fn()
         screen_hash = self.state.compute_screen_hash(frame)
         
-        # 1. Self-Healing check: Try Memory first
-        memory_entry = self.memory.get_entry(screen_hash, target)
-        if memory_entry and self.memory.get_historical_score(screen_hash, target) > 0.8:
-            nx, ny = memory_entry["coordinates"]
-            # Convert native to screen for pyautogui
-            from utils.coords import to_screen
-            sx, sy = to_screen(nx, ny)
-            log.info(f"Memory Hit! Trying native({nx}, {ny}) -> screen({sx}, {sy})")
-            if self._perform_and_validate(sx, sy, capture_fn):
-                self.memory.record_success(screen_hash, target, (nx, ny))
-                return {"success": True, "method": "memory", "coords": (nx, ny)}
-            else:
-                log.warning("Memory click failed validation. Falling back to fresh detection.")
-                self.memory.record_failure(screen_hash, target)
+        # 1. Resolve Coordinates
+        coords, method, metadata = self._resolve_target(target, frame, screen_hash)
+        
+        if not coords:
+            return {"success": False, "error": f"Target '{target}' not found."}
 
-        # 2. Fresh Detection + Ranking
-        ocr_results = self.ocr.extract(frame)
-        memory_stats = {} 
-        
-        ranked = self.ranking.rank_candidates(target, ocr_results, memory_stats)
-        
-        if not ranked or ranked[0]["ranking_details"]["final"] < 0.6:
-            # Try Template matching as fallback
-            log.info("OCR Ranking too low. Falling back to template matching.")
-            tpl_match = self.template.find(target, frame, self.region, context_id=self.context_id)
-            if tpl_match:
-                nx, ny = tpl_match
-                from utils.coords import to_screen
-                sx, sy = to_screen(nx, ny)
-                if self._perform_and_validate(sx, sy, capture_fn):
-                    return {"success": True, "method": "template", "coords": (nx, ny)}
-            
-            return {"success": False, "error": f"Target '{target}' not found with high confidence."}
-
-        # Select best candidate
-        best = ranked[0]
-        box = best["box"]
-        # Central point in NATIVE pixels (screenshot space)
-        nx = (box[0] + box[2]) // 2 + self.region.get("left", 0)
-        ny = (box[1] + box[3]) // 2 + self.region.get("top", 0)
-        
-        # Transform to SCREEN pixels for pyautogui
+        # 2. Transform & Perform
         from utils.coords import to_screen
-        sx, sy = to_screen(nx, ny)
-
-        if self._perform_and_validate(sx, sy, capture_fn):
-            self.memory.record_success(screen_hash, target, (nx, ny))
-            return {
-                "success": True, 
-                "method": "ocr", 
-                "coords": (nx, ny),
-                "ranking": best["ranking_details"]
-            }
+        sx, sy = to_screen(coords[0], coords[1])
         
+        if self._perform_and_validate(sx, sy, capture_fn):
+            if method != "memory":
+                self.memory.record_success(screen_hash, target, coords)
+            return {"success": True, "method": method, "coords": coords, "ranking": metadata}
+        
+        if method == "memory":
+             self.memory.record_failure(screen_hash, target)
         return {"success": False, "error": "Click failed stabilization/validation."}
+
+    def _resolve_target(self, target: str, frame: np.ndarray, screen_hash: str) -> Tuple[Optional[Tuple[int, int]], str, Any]:
+        """Priority-based resolution: Memory → Index → Vision."""
+        
+        # A. Memory (Self-Healing)
+        mem = self.memory.get_entry(screen_hash, target)
+        if mem and self.memory.get_historical_score(screen_hash, target) > 0.8:
+            log.info(f"Memory Hit: {target}")
+            return tuple(mem["coordinates"]), "memory", None
+
+        # B. Index Targeting (#5)
+        if target.startswith("#"):
+            coords = self._resolve_index(target)
+            if coords: return coords, "index_map", None
+
+        # C. Vision Targeting (OCR/Ranking)
+        return self._resolve_vision(target, frame)
+
+    def _resolve_index(self, target: str) -> Optional[Tuple[int, int]]:
+        try:
+            idx = int(target[1:])
+            import json
+            map_path = (self.suite_root / "memory" / "ui_map.json") if self.suite_root else Path("memory/ui_map.json")
+            if map_path.exists():
+                ui_map = json.loads(map_path.read_text())
+                match = next((e for e in ui_map.get("elements", []) if e["id"] == idx), None)
+                if match:
+                    log.info(f"Index Hit: {target}")
+                    return tuple(match["center_native"])
+        except Exception as e:
+            log.error(f"Index resolution error: {e}")
+        return None
+
+    def _resolve_vision(self, target: str, frame: np.ndarray) -> Tuple[Optional[Tuple[int, int]], str, Any]:
+        ocr_results = self.ocr.extract(frame)
+        ranked = self.ranking.rank_candidates(target, ocr_results)
+        
+        if ranked and ranked[0]["ranking_details"]["final"] >= 0.6:
+            best = ranked[0]
+            box = best["box"]
+            nx = (box[0] + box[2]) // 2 + self.region.get("left", 0)
+            ny = (box[1] + box[3]) // 2 + self.region.get("top", 0)
+            return (nx, ny), "ocr", best["ranking_details"]
+            
+        # Fallback to Template
+        tpl = self.template.find(target, frame, self.region, context_id=self.context_id)
+        if tpl: return tpl, "template", None
+        
+        return None, "", None
 
     def type(self, target: str, value: str, capture_fn: Callable[[], np.ndarray]) -> Dict[str, Any]:
         res = self.click(target, capture_fn)
