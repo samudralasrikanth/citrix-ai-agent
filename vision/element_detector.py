@@ -38,16 +38,38 @@ class ElementDetector:
         gray    = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges   = cv2.Canny(blurred, config.EDGE_CANNY_LOW, config.EDGE_CANNY_HIGH)
+        # Use RETR_LIST to find nested elements (not just the outer window frame)
         contours, _ = cv2.findContours(
-            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
         )
 
         elements: list[Element] = []
+        img_h, img_w = image.shape[:2]
+        
         for cnt in contours:
+            # Approximate the contour to a polygon to check if it is rectangular
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            
             if cv2.contourArea(cnt) < config.MIN_CONTOUR_AREA:
                 continue
+                
             x, y, w, h = cv2.boundingRect(cnt)
-            elements.append(_make_element([x, y, x + w, y + h], "", "contour"))
+            
+            # Skip the very large outer window box (usually >= 95% of image size)
+            if w > img_w * 0.95 and h > img_h * 0.95:
+                continue
+                
+            # Deduplicate very similar boxes (avoids double-detecting same box edges)
+            is_dupe = False
+            for existing in elements:
+                ex1, ey1, ex2, ey2 = existing["box"]
+                if abs(x - ex1) < 10 and abs(y - ey1) < 10 and abs(w - (ex2 - ex1)) < 10:
+                    is_dupe = True
+                    break
+            
+            if not is_dupe:
+                elements.append(_make_element([x, y, x + w, y + h], "", "contour"))
 
         log.debug("Detected %d contour elements.", len(elements))
         return elements

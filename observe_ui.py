@@ -28,9 +28,20 @@ def observe_window_ui():
     # 2. Capture the specific window
     img = capturer.capture(region)
     
-    # 3. Scan for UI boxes inside that window
+    # 3. Pre-process for better box detection (Sharpening & Thresholding)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Increase contrast
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(gray)
+    # Sharpen
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    sharpened = cv2.filter2D(enhanced, -1, kernel)
+    # Conver back to BGR for the detector
+    proc_img = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+
+    # 4. Scan for UI boxes inside that window
     print("Scanning for UI elements inside the window...")
-    elements = detector.detect_contours(img)
+    elements = detector.detect_contours(proc_img)
     
     # Sort top-to-bottom
     elements.sort(key=lambda e: (e['box'][1], e['box'][0]))
