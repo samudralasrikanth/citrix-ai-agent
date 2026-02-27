@@ -19,45 +19,64 @@ def visual_login(operator_id="MY_USER", password="MY_PASSWORD"):
     def find_and_interact(template_name, action="click", value=None, offset_x=0, match_index=0):
         template_path = Path(f"screenshots/{template_name}.png")
         if not template_path.exists():
-            print(f"Error: {template_path} not found!")
+            print(f"  [ERROR] File missing: {template_path}")
             return False
             
         tpl = cv2.imread(str(template_path), 0)
+        th, tw = tpl.shape
         res = cv2.matchTemplate(screen_gray, tpl, cv2.TM_CCOEFF_NORMED)
         
-        # Find all matches above 80% confidence
-        threshold = 0.8
+        # 1. Find all potential candidates
+        threshold = 0.7 # Slightly lower threshold for 'observation'
         locs = np.where(res >= threshold)
-        matches = []
-        for pt in zip(*locs[::-1]): # (x, y) coordinates
-            # Check if this match is too close to an existing one (clumping)
-            if not any(abs(pt[0]-m[0]) < 10 and abs(pt[1]-m[1]) < 10 for m in matches):
-                matches.append(pt)
+        all_candidates = []
+        for pt in zip(*locs[::-1]): 
+            score = res[pt[1], pt[0]]
+            if not any(abs(pt[0]-m[0]) < 20 and abs(pt[1]-m[1]) < 20 for m in all_candidates):
+                all_candidates.append((pt[0], pt[1], score))
         
-        # Sort matches by Y-coordinate (top to bottom)
-        matches.sort(key=lambda p: p[1])
+        # Sort by vertical position
+        all_candidates.sort(key=lambda c: c[1])
         
-        if len(matches) > match_index:
-            target_loc = matches[match_index]
-            h, w = tpl.shape
+        print(f"\n--- Observation Report for '{template_name}' ---")
+        print(f"  Found {len(all_candidates)} candidates on screen:")
+        for i, (x, y, score) in enumerate(all_candidates):
+            mark = "[TARGET]" if i == match_index else "        "
+            print(f"  {mark} Index {i}: Pos({x}, {y}) Confidence: {score:.4f}")
+        
+        # Save a debug image so user can see what the script sees
+        debug_img = screen.copy()
+        for i, (x, y, score) in enumerate(all_candidates):
+            color = (0, 255, 0) if i == match_index else (0, 165, 255)
+            cv2.rectangle(debug_img, (x, y), (x + tw, y + th), color, 2)
+            cv2.putText(debug_img, f"Idx:{i}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        debug_out = Path("screenshots/debug_view.png")
+        cv2.imwrite(str(debug_out), debug_img)
+        print(f"  [DEBUG] See what I observed here: {debug_out.absolute()}")
+
+        if len(all_candidates) > match_index:
+            x, y, score = all_candidates[match_index]
             # Calculate coordinates
-            nx = target_loc[0] + (w // 2) + offset_x
-            ny = target_loc[1] + (h // 2)
+            nx = x + (tw // 2) + offset_x
+            ny = y + (th // 2)
             
             sx, sy = to_screen(nx, ny)
-            print(f"Target '{template_name}' [index {match_index}] found at ({sx}, {sy})")
+            print(f"  [ACTION] Moving to Index {match_index} at screen coords ({sx}, {sy})")
             
-            pyautogui.moveTo(sx, sy, duration=0.5)
+            pyautogui.moveTo(sx, sy, duration=0.6)
             pyautogui.click()
+            time.sleep(0.4) # Wait for focus
             
             if action == "type" and value:
-                time.sleep(0.3)
-                pyautogui.hotkey('ctrl', 'a') if os.name == 'nt' else pyautogui.hotkey('command', 'a')
+                print(f"  [ACTION] Typing value...")
+                # Triple click to ensure field is cleared
+                pyautogui.click(clicks=3, interval=0.1)
                 pyautogui.press('backspace')
-                pyautogui.write(value, interval=0.05)
+                pyautogui.write(value, interval=0.08)
             return True
         else:
-            print(f"Could not find match index {match_index} for '{template_name}'. Found {len(matches)} total.")
+            print(f"  [FAILED] Target index {match_index} not available.")
             return False
 
     # --- EXECUTION SEQUENCE ---
