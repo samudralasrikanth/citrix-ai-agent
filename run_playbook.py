@@ -19,51 +19,50 @@ log = get_logger("Runner")
 def align_region(playbook_path: Path) -> Optional[Dict[str, Any]]:
     """
     Alignment phase: Find the target window/region.
-    Checks the current directory and parent directory for config/reference files.
     """
     search_paths = [playbook_path.parent, playbook_path.parent.parent]
-    
     capturer = ScreenCapture()
     region = None
 
     try:
         for path in search_paths:
-            ref_path = path / "reference.png"
-            reg_path = path / "region.json"
             cfg_path = path / "suite_config.json"
+            ref_path = path / "reference.png"
+            
+            # 1. High Priority: Window Title Match (Most robust to movement)
+            if cfg_path.exists():
+                try:
+                    data = json.loads(cfg_path.read_text())
+                    win_name = data.get("window_name")
+                    if win_name:
+                        from setup_region import _get_windows
+                        wins = _get_windows()
+                        match = next((w for w in wins if w["name"] == win_name), None)
+                        if match:
+                            log.info(f"Dynamic alignment: Found window '{win_name}' at {match['left']},{match['top']}")
+                            return match
+                except Exception as e:
+                    log.warning(f"Window title alignment failed: {e}")
 
-            # 1. Try visual alignment if reference exists
+            # 2. Medium Priority: Visual Template (Robust to movement if window name changes)
             if ref_path.exists():
                 region = capturer.locate_window(ref_path)
                 if region:
                     log.info(f"Visual alignment success using {ref_path}")
                     return region
 
-            # 2. Try suite_config.json
+            # 3. Fallback: Static Region
             if cfg_path.exists():
                 try:
                     data = json.loads(cfg_path.read_text())
-                    if data.get("platform") == "web":
-                        log.info("Web platform detected, bypassing region alignment.")
-                        return {}
                     static_reg = data.get("region")
                     if static_reg:
-                        log.info(f"Using static region from {cfg_path.name}")
+                        log.info("Using static region from suite_config.json")
                         return static_reg
-                except:
-                    pass
+                except: pass
 
-            # 3. Fallback to region.json
-            if reg_path.exists():
-                try:
-                    data = json.loads(reg_path.read_text())
-                    log.info(f"Using static region from {reg_path.name}")
-                    return data.get("region", data)
-                except:
-                    pass
     finally:
         capturer.close()
-    
     return None
 
 def main():

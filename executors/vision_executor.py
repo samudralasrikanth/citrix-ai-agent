@@ -36,45 +36,79 @@ class VisionExecutor(BaseExecutor):
         self.template = TemplateMatcher()
 
     def execute(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Entry point for vision-based steps."""
+        """Entry point for vision-based steps with self-healing alignment."""
         action = step.get("action", "").lower()
         target = step.get("target", "")
         value = step.get("value", "")
         
-        # For simplicity in this POC, we use a global screen capture if no region is provided
         from capture.screen_capture import ScreenCapture
         capturer = ScreenCapture()
         
         def capture(): return capturer.capture(self.region)
 
         start_time = time.time()
-        result = {"success": False, "retry_count": 0}
+        result = {"success": False}
         
-        try:
-            if action == "click":
-                result = self.click(target, capture_fn=capture)
-            elif action == "type":
-                result = self.type(target, value, capture_fn=capture)
-            elif action == "verify":
-                result = self.verify(target, capture_fn=capture)
-            elif action == "pause":
-                time.sleep(float(value or 1.0))
-                result = {"success": True}
-            elif action == "screenshot":
-                img = capture()
-                # Prioritize suite-local screenshots dir
-                ss_dir = (self.suite_root / "screenshots") if self.suite_root else config.SCREENSHOTS_DIR
-                ss_dir.mkdir(exist_ok=True, parents=True)
-                path = ss_dir / f"manual_{int(time.time())}.png"
-                save_image(img, str(path))
-                result = {"success": True, "path": str(path)}
+        # Self-healing loop: if fails, try to re-align once
+        for attempt in range(2):
+            try:
+                if action == "click":
+                    result = self.click(target, capture_fn=capture)
+                elif action == "type":
+                    result = self.type(target, value, capture_fn=capture)
+                elif action == "verify":
+                    result = self.verify(target, capture_fn=capture)
+                elif action == "pause":
+                    time.sleep(float(value or 1.0))
+                    result = {"success": True}
+                elif action == "screenshot":
+                    img = capture()
+                    ss_dir = (self.suite_root / "screenshots") if self.suite_root else config.SCREENSHOTS_DIR
+                    ss_dir.mkdir(exist_ok=True, parents=True)
+                    path = ss_dir / f"manual_{int(time.time())}.png"
+                    save_image(img, str(path))
+                    result = {"success": True, "path": str(path)}
                 
-        except Exception as e:
-            log.exception(f"Vision execution error: {e}")
-            result = {"success": False, "error": str(e)}
+                if result.get("success"):
+                    break
+                    
+                # If failed and first attempt, try to re-align
+                if attempt == 0:
+                    log.warning(f"Step failed. Attempting window re-alignment for '{target}'...")
+                    if self._realign():
+                        continue 
+                    break
+            except Exception as e:
+                log.error(f"Execution error on attempt {attempt}: {e}")
+                if attempt == 0 and self._realign(): continue
+                result = {"success": False, "error": str(e)}
+                break
 
         result["duration"] = round(time.time() - start_time, 3)
         return result
+
+    def _realign(self) -> bool:
+        """Dynamic alignment: Find window by name if suite_root is available."""
+        if not self.suite_root: return False
+        cfg_path = self.suite_root / "suite_config.json"
+        if not cfg_path.exists(): return False
+        
+        try:
+            import json
+            from setup_region import _get_windows
+            data = json.loads(cfg_path.read_text())
+            name = data.get("window_name")
+            if not name: return False
+            
+            wins = _get_windows()
+            match = next((w for w in wins if w["name"] == name), None)
+            if match:
+                log.info(f"Self-healed alignment: Moved to {match['left']},{match['top']}")
+                self.region = match
+                return True
+        except Exception as e:
+            log.warning(f"Re-alignment logic failed: {e}")
+        return False
 
     def click(self, target: str, capture_fn: Callable[[], np.ndarray]) -> Dict[str, Any]:
         log.info(f"Vision Resolution: '{target}'")

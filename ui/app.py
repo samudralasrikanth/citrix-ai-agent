@@ -37,8 +37,8 @@ SUITES_DIR = config.SUITES_DIR
 _active_processes: Dict[str, subprocess.Popen] = {}
 _registry_lock = threading.Lock()
 
-# ── Logging ───────────────────────────────────────────────────────────────────
-log = logging.getLogger("ui.app")
+from utils.logger import get_logger
+log = get_logger("ui.app")
 
 # ═══════════════════════════════════════════════════════════════════
 # ── Page Render ────────────────────────────────────────────────────
@@ -153,44 +153,102 @@ def setup_region():
             "capabilities": cap,
             "web_config": web_conf if platform == "web" else None,
             "region": {k: window[k] for k in ("top", "left", "width", "height") if k in window} if platform != "web" else None,
+            "window_name": window.get("name") if platform != "web" else None,
         }
         try:
             (suite_dir / "suite_config.json").write_text(json.dumps(config_data, indent=2))
         except Exception as e:
              return jsonify({"success": False, "error": f"Failed to write config: {str(e)}"}), 500
 
-        # 3. Handle Visual Alignment (for Citrix/Desktop)
+        # 3. Handle Visual Alignment & Auto-Scan (for Citrix/Desktop)
+        elements = []
         if platform != "web" and window:
             try:
-                import cv2
                 from capture.screen_capture import ScreenCapture
+                from vision.element_detector import ElementDetector
+                
                 cap_tool = ScreenCapture()
+                detector = ElementDetector()
+                
+                # Capture Reference
                 img = cap_tool.capture(region=window)
                 cap_tool.close()
                 cv2.imwrite(str(suite_dir / "reference.png"), img)
+                
+                # Auto-Scan UI
+                elements = detector.scan(img)
+                
+                # Save UI Map Metadata
+                exported_elements = []
+                for i, elem in enumerate(elements):
+                    box = elem['box']
+                    nx, ny = elem['cx'], elem['cy']
+                    sx, sy = to_screen(nx + window.get("left", 0), ny + window.get("top", 0))
+                    
+                    exported_elements.append({
+                        "id": i,
+                        "label": elem.get('label', '').strip(),
+                        "box": box,
+                        "center_native": [nx, ny],
+                        "center_screen": [sx, sy],
+                        "size": [box[2]-box[0], box[3]-box[1]],
+                        "source": elem.get("source", "unknown")
+                    })
+
+                mem_dir = suite_dir / "memory"
+                mem_dir.mkdir(exist_ok=True)
+                
+                # Save visual map
+                debug_img = detector.annotate(img, elements)
+                cv2.imwrite(str(mem_dir / "ui_map.png"), debug_img)
+                
+                ui_map = {
+                    "timestamp": time.time(),
+                    "source": f"auto-scan window '{window.get('title')}'",
+                    "elements": exported_elements
+                }
+                (mem_dir / "ui_map.json").write_text(json.dumps(ui_map, indent=2))
+                
                 # Also save region.json for backward compat
                 region_data = {"region": config_data["region"]}
                 (suite_dir / "region.json").write_text(json.dumps(region_data, indent=2))
+                
             except Exception as exc:
-                log.warning("Visual reference capture failed: %s", exc)
-                # We don't fail the whole request here, but we log it
+                log.exception("Auto-scan failed during setup")
 
         # 4. Scaffold first test case
         try:
             test_case = suite_dir / "tests" / "main_flow.yaml"
-            if not test_case.exists():
-                test_case.write_text(
-                    f"name: {suite_id.replace('_',' ').title()} Main Flow\n"
-                    f"description: Initial flow for {platform} suite\n"
-                    f"steps:\n  - action: pause\n    value: '1.0'\n    description: Entry point\n",
-                    encoding="utf-8",
-                )
+            
+            # Find a meaningful first step from the scan
+            first_target = "Button"
+            for e in elements:
+                if e.get("label"):
+                    first_target = e["label"]
+                    break
+            
+            yaml_content = f"""name: {suite_id.replace('_', ' ').title()} Main Flow
+description: "Automatically generated test suite for {platform}."
+
+steps:
+  - action: pause
+    value: "1"
+    description: "Wait for interface stabilization"
+
+  - action: click
+    target: "{first_target}"
+    description: "Click detected element '{first_target}'"
+
+  - action: screenshot
+    description: "Capture state after first action"
+"""
+            test_case.write_text(yaml_content)
         except Exception as e:
-            return jsonify({"success": False, "error": f"Failed to scaffold test case: {str(e)}"}), 500
+             log.warning("Failed to scaffold test case: %s", e)
 
         return jsonify({"success": True, "id": suite_id})
     except Exception as e:
-        log.exception("Unexpected error in setup_region")
+        log.exception("Global setup failure")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

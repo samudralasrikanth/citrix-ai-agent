@@ -213,9 +213,19 @@ body {
 /* File sub-list */
 .file-list {
     list-style: none;
-    margin-left: 24px;
+    margin-left: 12px;
     border-left: 1px solid var(--border);
     padding: 4px 0;
+}
+
+.folder-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    padding: 8px 10px 4px 12px;
+    user-select: none;
 }
 
 .file-item {

@@ -113,19 +113,41 @@ async function loadFileList(testId, container) {
 
 function renderFileItems(testId, files, container) {
     container.innerHTML = '';
-    files.forEach(fileObj => {
-        const file = fileObj.path;
-        const li = document.createElement('li');
-        li.className = 'file-item';
-        li.dataset.test = testId;
-        li.dataset.file = file;
-        const isActive = (state.currentId === testId && state.currentFile === file);
-        if (isActive) li.classList.add('active');
 
-        const icon = file.endsWith('.png') ? '🖼' : file.endsWith('.json') ? '⚙' : '📄';
-        li.innerHTML = `<span>${icon}</span><span>${file}</span>`;
-        li.addEventListener('click', e => { e.stopPropagation(); loadPlaybook(testId, file); });
-        container.appendChild(li);
+    // Group files by folder
+    const groups = {};
+    files.forEach(f => {
+        const parts = f.path.split('/');
+        const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : 'ROOT';
+        if (!groups[folder]) groups[folder] = [];
+        groups[folder].push(f);
+    });
+
+    Object.keys(groups).sort().forEach(folder => {
+        if (folder !== 'ROOT') {
+            const head = document.createElement('li');
+            head.className = 'folder-header';
+            head.innerHTML = `📁 ${folder}`;
+            container.appendChild(head);
+        }
+
+        groups[folder].forEach(fileObj => {
+            const file = fileObj.path;
+            const li = document.createElement('li');
+            li.className = 'file-item';
+            if (folder !== 'ROOT') li.style.paddingLeft = '24px';
+            li.dataset.test = testId;
+            li.dataset.file = file;
+            const isActive = (state.currentId === testId && state.currentFile === file);
+            if (isActive) li.classList.add('active');
+
+            const icon = file.endsWith('.png') ? '🖼' : file.endsWith('.json') ? '⚙' : (file.endsWith('.yaml') ? '📜' : '📄');
+            const displayName = file.split('/').pop();
+            li.innerHTML = `<span>${icon}</span><span>${displayName}</span>`;
+            li.title = file; // Show full path on hover
+            li.addEventListener('click', e => { e.stopPropagation(); loadPlaybook(testId, file); });
+            container.appendChild(li);
+        });
     });
 }
 
@@ -163,48 +185,8 @@ async function loadPlaybook(id, filename = 'suite_config.json') {
     document.querySelectorAll('.file-item').forEach(e => e.classList.remove('active'));
     const activeEl = document.querySelector(`[data-test="${id}"][data-file="${filename}"]`);
     if (activeEl) activeEl.classList.add('active');
-
-    // Show Scan UI button if we have an active suite
-    $('btn-scan-ui').classList.toggle('hidden', !id);
 }
 
-async function scanSuiteUI() {
-    if (!state.currentId) return;
-    const btn = $('btn-scan-ui');
-    const oldHtml = btn.innerHTML;
-
-    // If an image is open, scan the image instead of the window
-    const isImage = state.currentFile && state.currentFile.endsWith('.png');
-    const payload = isImage ? { file: state.currentFile } : {};
-
-    btn.disabled = true;
-    btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:8px"></div> Scanning…';
-
-    try {
-        logEntry('info', `Starting UI scan for ${isImage ? 'file: ' + state.currentFile : 'target window'}…`);
-        const res = await fetch(`/api/suites/${state.currentId}/scan`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const result = await res.json();
-
-        if (res.ok && result.success) {
-            logEntry('success', result.message);
-            // Refresh file list to show memory/ui_map.json etc
-            const container = document.querySelector(`.test-container .nav-item[data-id="${state.currentId}"]`).nextElementSibling;
-            await loadFileList(state.currentId, container);
-        } else {
-            logEntry('error', `Scan failed: ${result.error || 'Server error'}`);
-            alert('Scan failed: ' + (result.error || 'Check logs'));
-        }
-    } catch (e) {
-        logEntry('error', `Network error during scan: ${e.message}`);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = oldHtml;
-    }
-}
 
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -602,7 +584,6 @@ function setupEventListeners() {
     $('btn-stop').addEventListener('click', stopPlaybook);
     $('btn-new-test').addEventListener('click', openModal);
     $('btn-save-region').addEventListener('click', saveRegion);
-    $('btn-scan-ui').addEventListener('click', scanSuiteUI);
 
     // Platform toggle logic
     document.querySelectorAll('input[name="platform"]').forEach(radio => {
