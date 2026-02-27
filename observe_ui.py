@@ -70,9 +70,44 @@ def observe_window_ui():
         cv2.rectangle(debug_img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
         cv2.putText(debug_img, str(i), (box[0], box[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
+    # 5. Export Metadata and Save Map
     debug_path = Path("screenshots/window_observation_map.png")
     cv2.imwrite(str(debug_path), debug_img)
+    
+    json_path = Path("memory/ui_map.json")
+    exported_data = {
+        "timestamp": time.time(),
+        "region": region,
+        "elements": []
+    }
+    
+    for i, elem in enumerate(elements):
+        box = elem['box']
+        w = box[2] - box[0]
+        h = box[3] - box[1]
+        
+        if w < 20 or h < 10 or w > 1000:
+            continue
+            
+        nx = elem['cx'] + region.get("left", 0) if region else elem['cx']
+        ny = elem['cy'] + region.get("top", 0) if region else elem['cy']
+        sx, sy = to_screen(nx, ny)
+        
+        exported_data["elements"].append({
+            "id": i,
+            "box": box,
+            "center_native": [nx, ny],
+            "center_screen": [sx, sy],
+            "size": [w, h]
+        })
+
+    with open(json_path, "w") as f:
+        json.dump(exported_data, f, indent=2)
+
     print(f"\n[SUCCESS] Map saved: {debug_path.absolute()}")
+    print(f"[SUCCESS] JSON Metadata saved: {json_path.absolute()}")
+    print(f"Total elements preserved: {len(exported_data['elements'])}")
 
 if __name__ == "__main__":
+    import time
     observe_window_ui()
