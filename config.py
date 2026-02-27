@@ -9,7 +9,11 @@ os.environ["SCREEN_CAPTURE_DEBUG"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["FLAGS_enable_pir_in_executor"] = "0"
+os.environ["FLAGS_enable_new_ir_api"] = "0"
+os.environ["FLAGS_new_executor_serial_run"] = "1"
 os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_allocator_strategy"] = "naive_best_fit"
 
 # ── Project Root ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent

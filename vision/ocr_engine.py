@@ -46,10 +46,7 @@ class OcrEngine:
                  config.OCR_LANG, config.OCR_PREWARM)
         try:
             from paddleocr import PaddleOCR
-            self._ocr = PaddleOCR(
-                lang=config.OCR_LANG,
-                use_angle_cls=False
-            )
+            self._ocr = PaddleOCR(lang=config.OCR_LANG)
             if config.OCR_PREWARM:
                 self._warm_up()
             OcrEngine._initialized = True
