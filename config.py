@@ -15,6 +15,8 @@ os.environ["FLAGS_enable_new_ir_api"] = "0"
 os.environ["FLAGS_new_executor_serial_run"] = "1"
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_allocator_strategy"] = "naive_best_fit"
+os.environ["FLAGS_fraction_of_gpu_memory_to_use"] = "0.0"
+os.environ["FLAGS_cudnn_deterministic"] = "True"
 
 # ── Project Root ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent

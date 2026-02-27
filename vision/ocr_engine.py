@@ -50,6 +50,7 @@ class OcrEngine:
             os.environ["FLAGS_enable_pir_api"] = "0"
             os.environ["FLAGS_enable_new_executor"] = "0"
             os.environ["FLAGS_use_mkldnn"] = "0"
+            os.environ["FLAGS_fraction_of_gpu_memory_to_use"] = "0.0"
             
             import paddle
             try:
@@ -73,8 +74,9 @@ class OcrEngine:
             OcrEngine._initialized = True
             log.info("OCR Engine ready.")
         except Exception as exc:
-            log.error("CRITICAL: Failed to load OCR models: %s", exc)
-            raise RuntimeError(f"OCR Initialization Error: {exc}")
+            log.error("NON-CRITICAL: OCR failed to initialize. System will fall back to visual-only detection. Error: %s", exc)
+            self._ocr = None
+            OcrEngine._initialized = True # Mark as init-attempted to avoid repeated failures
 
     # ── Public extract methods ─────────────────────────────────────────────────
 
@@ -124,6 +126,8 @@ class OcrEngine:
 
     def _run(self, image: np.ndarray, min_conf: float) -> List[Dict[str, Any]]:
         """Internal: pre-process → PaddleOCR → filter → structure."""
+        if self._ocr is None:
+            return []
         try:
             prepared = self._preprocess(image)
             raw      = self._ocr.ocr(prepared)

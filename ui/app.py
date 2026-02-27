@@ -21,9 +21,9 @@ from typing import Dict, Optional
 ROOT = Path(__file__).parent.parent
 sys.path.append(str(ROOT))
 
+import config
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 from setup_region import _get_windows
-import config
 import cv2
 import numpy as np
 from capture.screen_capture import ScreenCapture
@@ -175,15 +175,31 @@ def setup_region():
                 cap_tool = ScreenCapture()
                 detector = ElementDetector()
                 
-                # Capture Reference
+                # 1. Capture & Save Reference Immediately
                 img = cap_tool.capture(region=window)
                 cap_tool.close()
                 cv2.imwrite(str(suite_dir / "reference.png"), img)
                 
-                # Auto-Scan UI
+                # 2. Scaffold Initial Test (so at least something exists)
+                test_case = suite_dir / "tests" / "main_flow.yaml"
+                yaml_content = f"""name: {suite_id.replace('_', ' ').title()} Flow
+description: "Vision-ready automation suite."
+
+steps:
+  - action: pause
+    value: "1"
+    description: "Wait for interface"
+
+  - action: screenshot
+    description: "Verify state"
+"""
+                test_case.write_text(yaml_content)
+
+                # 3. Attempt Vision Map (Failsafe)
+                log.info("Starting UI Auto-scan...")
                 elements = detector.scan(img)
                 
-                # Save UI Map Metadata
+                # 4. Save UI Map Metadata
                 exported_elements = []
                 for i, elem in enumerate(elements):
                     box = elem['box']
@@ -203,7 +219,7 @@ def setup_region():
                 mem_dir = suite_dir / "memory"
                 mem_dir.mkdir(exist_ok=True)
                 
-                # Save visual map
+                # Save visual map & JSON
                 debug_img = detector.annotate(img, elements)
                 cv2.imwrite(str(mem_dir / "ui_map.png"), debug_img)
                 
@@ -214,12 +230,14 @@ def setup_region():
                 }
                 (mem_dir / "ui_map.json").write_text(json.dumps(ui_map, indent=2))
                 
-                # Also save region.json for backward compat
-                region_data = {"region": config_data["region"]}
-                (suite_dir / "region.json").write_text(json.dumps(region_data, indent=2))
-                
+                # Update test case if we found elements
+                if elements:
+                    first_label = next((e['label'] for e in elements if e.get('label')), "Button")
+                    yaml_content = yaml_content.replace("- action: screenshot", f"- action: click\n    target: \"{first_label}\"\n\n  - action: screenshot")
+                    test_case.write_text(yaml_content)
+
             except Exception as exc:
-                log.exception("Auto-scan failed during setup")
+                log.error(f"Vision Auto-scan partially failed: {exc}")
 
         # 4. Scaffold first test case
         try:
