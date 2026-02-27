@@ -217,7 +217,10 @@ async function runPlaybook(dryRun = false) {
     setProgress(0, dryRun ? 'Dry Run…' : 'Starting…');
     terminal.innerHTML = '';
 
-    const runFile = state.currentFile || 'tests/main_flow.yaml';
+    let runFile = state.currentFile || 'tests/main_flow.yaml';
+    if (!runFile.endsWith('.yaml') && !runFile.endsWith('.yml')) {
+        runFile = 'tests/main_flow.yaml';
+    }
     state.eventSource = new EventSource(`/api/run/${state.currentId}?dry_run=${dryRun}&file=${runFile}`);
 
     state.eventSource.onmessage = evt => {

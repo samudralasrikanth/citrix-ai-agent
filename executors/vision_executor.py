@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 import pyautogui
+from pathlib import Path
 
 import config
 from executors.base import BaseExecutor

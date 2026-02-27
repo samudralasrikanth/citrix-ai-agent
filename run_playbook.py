@@ -7,7 +7,8 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+# Ensure the root directory is in the path so we pick up the correct config.py
+sys.path.insert(0, str(Path(__file__).parent))
 
 import config
 from orchestrator.orchestrator import Orchestrator

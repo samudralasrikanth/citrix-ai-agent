@@ -1,0 +1,24 @@
+name: Sample Typing Test
+description: "Example showing how to type text into fields using vision labels."
+
+steps:
+  - action: pause
+    value: "1"
+    description: "Wait for the application to be ready"
+
+  - action: type
+    target: "Username"
+    value: "admin_user"
+    description: "Locate the 'Username' field and type the username"
+
+  - action: type
+    target: "Password"
+    value: "SecurePass123"
+    description: "Locate the 'Password' field and type the password"
+
+  - action: click
+    target: "Login"
+    description: "Click the Login button after filling the form"
+
+  - action: screenshot
+    description: "Capture the state after login attempt"

@@ -26,7 +26,9 @@ from vision.text_normalizer import normalize
 
 log = logging.getLogger("TemplateMatcher")
 
-_TEMPLATE_DIR = config.MEMORY_DIR / "templates"
+# Handle cases where config might be partially loaded or missing MEMORY_DIR
+_MEMORY_DIR = getattr(config, 'MEMORY_DIR', config.BASE_DIR / "memory")
+_TEMPLATE_DIR = _MEMORY_DIR / "templates"
 _TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
